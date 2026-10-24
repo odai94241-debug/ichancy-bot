@@ -1,22 +1,15 @@
 import os
 import time
-import random
 import requests
 import telebot
 from flask import Flask, request
 
-API_TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18' 
+API_TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
 AGENT_ID = "2826132-odai1@agents.nps"
 ICHANCY_API_URL = "https://agents.ichancy.com/api/create_player"
 
 SETTINGS = {
-    "maintenance": False,
     "support_link": "https://t.me/odairobertbot"
-}
-
-CUSTOM_DEPOSIT_METHODS = {
-    "شام كاش": "يرجى التواصل مع الإدارة",
-    "سيرياتل كاش": "يرجى التواصل مع الإدارة"
 }
 
 CUSTOM_WITHDRAW_METHODS = ["شام كاش", "سيرياتل كاش"]
@@ -27,22 +20,20 @@ app = Flask(__name__)
 
 USER_BALANCES = {}
 USER_IDS = set()
-ADMIN_IDS = set()
 TEMP_USER_DATA = {}
 
 @app.route(f'/{API_TOKEN}', methods=['POST'])
 def webhook():
-    try:
+    if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
-    except Exception as e:
-        print(f"Error: {e}")
-    return "OK", 200
+        return '', 200
+    return "Forbidden", 403
 
 @app.route('/')
 def index():
-    return "Bot is running perfectly!", 200
+    return "iChancy Bot is Online and Healthy!", 200
 
 def main_keyboard():
     markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -105,14 +96,15 @@ def show_account_info(message):
     bal = USER_BALANCES.get(message.from_user.id, 0)
     bot.send_message(message.chat.id, f"معلومات الحساب:\nID: {message.from_user.id}\nالرصيد: {bal} ليرة")
 
-RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
-if RENDER_EXTERNAL_URL:
+# ضبط الـ Webhook تلقائياً مع سيرفر Render
+RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL')
+if RENDER_URL:
     try:
         bot.remove_webhook()
-        time.sleep(0.5)
-        bot.set_webhook(url=f"{RENDER_EXTERNAL_URL}/{API_TOKEN}")
+        time.sleep(0.2)
+        bot.set_webhook(url=f"{RENDER_URL}/{API_TOKEN}")
     except Exception as e:
-        print(f"Webhook warning: {e}")
+        print(f"Webhook error: {e}")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
