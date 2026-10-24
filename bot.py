@@ -7,7 +7,7 @@ import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
-ADMIN_ID = 2826132
+ADMIN_ID = 7753870725
 MIN_WITHDRAWAL = 500
 WHEEL_DAILY_LIMIT = 750
 ICHANCY_URL = "https://www.ichancy.com"
@@ -234,7 +234,7 @@ def send_welcome(message):
         bot.send_message(user_id, "⚠️ البوت حالياً في وضع الصيانة للتحديث.\nيرجى المحاولة لاحقاً!")
         return
     if is_admin:
-        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!\nحسابك مفعّل كآدمن بالكامل.", reply_markup=main_menu(True))
+        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!\nحسابك مفعّل كآدمن بالكامل وتستطيع قبول ورفض العمليات الآن.", reply_markup=main_menu(True))
         return
     welcome_text = "مرحباً بك في بوت إدارة وكالة iChancy الرسمية! 🎰\n\nيرجى اختيار إحدى الخدمات من القائمة أدناه:"
     bot.send_message(user_id, welcome_text, reply_markup=main_menu(False))
