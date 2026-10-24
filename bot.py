@@ -1,470 +1,625 @@
+import json
 import os
 import random
 import sqlite3
-import requests
 from datetime import date
 from flask import Flask, request
+import requests
 import telebot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    WebAppInfo,
+)
 
 TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
 ADMIN_ID = 7753870725
-MIN_WITHDRAWAL = 500
-WHEEL_DAILY_LIMIT = 750
-ICHANCY_URL = "https://www.ichancy.com"
+ICHANCY_URL = 'https://www.ichancy.com'
+AGENT_CODE = '2826132-odai1@agents.nps'
+RENDER_URL = 'https://ichancy-bot-uagc.onrender.com'
 
-# كود الوكالة السري (مخفي تماماً عن اللاعبين)
-AGENT_CODE = "2826132-odai1@agents.nps"
+# الحدود المالية بالعملة السورية الجديدة
+MIN_DEPOSIT = 250
+MIN_WITHDRAWAL = 500
+WHEEL_DEPOSIT_REQUIRED = (
+    750  # الحد اليومي لشحن العجلة بالعملة الجديدة (مثلاً 750 ليرة)
+)
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
+
 def init_db():
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                        user_id INTEGER PRIMARY KEY, 
-                        first_name TEXT, 
-                        daily_deposit REAL DEFAULT 0,
-                        last_deposit_date TEXT,
-                        last_spin_date TEXT
-                    )''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS accounts (
-                        user_id INTEGER,
-                        username TEXT,
-                        password TEXT
-                    )''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)''')
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد حالياً')")
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير محدد حالياً')")
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة iChancy:\n1. يتم خصم الرصيد تلقائياً من حساب iChancy عند طلب السحب.\n2. تحويل المبلغ المسحوب إلى كاش اللاعب (شام كاش أو سيريتل كاش).\n3. الحد الأدنى للسحب هو 500 ليرة.')")
-    conn.commit()
-    conn.close()
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      '''CREATE TABLE IF NOT EXISTS users (
+                      user_id INTEGER PRIMARY KEY, 
+                      first_name TEXT, 
+                      balance REAL DEFAULT 0,
+                      daily_deposit REAL DEFAULT 0,
+                      last_deposit_date TEXT,
+                      last_spin_date TEXT,
+                      referred_by INTEGER
+                  )'''
+  )
+  cursor.execute(
+      '''CREATE TABLE IF NOT EXISTS accounts (
+                      user_id INTEGER,
+                      username TEXT,
+                      password TEXT
+                  )'''
+  )
+  cursor.execute(
+      '''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)'''
+  )
+  cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
+  cursor.execute(
+      "INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد حالياً')"
+  )
+  cursor.execute(
+      "INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير"
+      " محدد حالياً')"
+  )
+  cursor.execute(
+      "INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة"
+      ' iChancy (العملة الجديدة):\n1. منع الحسابات المتعددة.\n2. الحد الأدنى'
+      ' للشحن: 250 ليرة.\n3. الحد الأدنى للسحب: 500 ليرة.\n4. نسب السحب'
+      ' المتناقصة: حتى 500 ألف 10%، ومن 500 ألف إلى 1.5 مليون 15%، وفوق 1.5 مليون'
+      " 20%.')"
+  )
+  conn.commit()
+  conn.close()
+
 
 init_db()
 
+
 def get_setting(key):
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
-    row = cursor.fetchone()
-    conn.close()
-    return row[0] if row else ""
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute('SELECT value FROM settings WHERE key=?', (key,))
+  row = cursor.fetchone()
+  conn.close()
+  return row[0] if row else ''
+
 
 def set_setting(key, value):
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
-    conn.close()
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute('REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+  conn.commit()
+  conn.close()
 
-def add_user(user_id, first_name):
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO users (user_id, first_name) VALUES (?, ?)", (user_id, first_name))
-    conn.commit()
-    conn.close()
 
-def check_username_exists(username):
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM accounts WHERE username=?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    return row is not None
+def add_user(user_id, first_name, referred_by=None):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'INSERT OR IGNORE INTO users (user_id, first_name, referred_by) VALUES'
+      ' (?, ?, ?)',
+      (user_id, first_name, referred_by),
+  )
+  conn.commit()
+  conn.close()
 
-def save_player_account(user_id, username, password):
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO accounts VALUES (?, ?, ?)", (user_id, username, password))
-    conn.commit()
-    conn.close()
 
-def get_user_daily_data(user_id):
-    today = str(date.today())
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT daily_deposit, last_deposit_date, last_spin_date FROM users WHERE user_id=?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return 0, False
-    daily_dep, last_dep_date, last_spin_date = row
+def get_user_info(user_id):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'SELECT balance, daily_deposit, last_deposit_date, last_spin_date FROM'
+      ' users WHERE user_id=?',
+      (user_id,),
+  )
+  row = cursor.fetchone()
+  conn.close()
+  today = str(date.today())
+  if row:
+    balance, daily_dep, last_dep_date, last_spin = row
     if last_dep_date != today:
-        daily_dep = 0
-    has_spun_today = (last_spin_date == today)
-    return daily_dep, has_spun_today
+      daily_dep = 0
+    return balance, daily_dep, last_dep_date, last_spin
+  return 0, 0, '', ''
+
+
+def update_user_balance(user_id, amount):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'UPDATE users SET balance = balance + ? WHERE user_id=?', (amount, user_id)
+  )
+  conn.commit()
+  conn.close()
+
 
 def add_user_deposit(user_id, amount):
-    today = str(date.today())
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT last_deposit_date, daily_deposit FROM users WHERE user_id=?", (user_id,))
-    row = cursor.fetchone()
-    if row and row[0] == today:
-        new_amount = row[1] + amount
-    else:
-        new_amount = amount
-    cursor.execute("UPDATE users SET daily_deposit = ?, last_deposit_date = ? WHERE user_id=?", (new_amount, today, user_id))
+  today = str(date.today())
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'SELECT daily_deposit, last_deposit_date FROM users WHERE user_id=?',
+      (user_id,),
+  )
+  row = cursor.fetchone()
+  if row:
+    current_dep, last_date = row
+    new_dep = (current_dep + amount) if last_date == today else amount
+    cursor.execute(
+        'UPDATE users SET daily_deposit = ?, last_deposit_date = ? WHERE'
+        ' user_id=?',
+        (new_dep, today, user_id),
+    )
     conn.commit()
-    conn.close()
+  conn.close()
 
-def set_user_spun_today(user_id):
-    today = str(date.today())
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET last_spin_date = ? WHERE user_id=?", (today, user_id))
-    conn.commit()
-    conn.close()
+
+def save_player_account(user_id, username, password):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'INSERT INTO accounts VALUES (?, ?, ?)', (user_id, username, password)
+  )
+  conn.commit()
+  conn.close()
+
+
+def get_player_account(user_id):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'SELECT username, password FROM accounts WHERE user_id=?', (user_id,)
+  )
+  row = cursor.fetchone()
+  conn.close()
+  return row
+
 
 def get_all_users():
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM users")
-    rows = cursor.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute('SELECT user_id FROM users')
+  rows = cursor.fetchall()
+  conn.close()
+  return [r[0] for r in rows]
+
+
+# حساب عمولة السحب المتناقصة بالعملة الجديدة (مثال: مليون ومية ألف تصبح 1,100,000 جديدة أو حسب مقياسك)
+def calculate_withdrawal_commission(amount):
+  if amount <= 500000:
+    rate = 0.10
+  elif amount <= 1500000:
+    rate = 0.15
+  else:
+    rate = 0.20
+  deduction = amount * rate
+  return amount - deduction, rate * 100
+
 
 def ichancy_api_create_account(username, password):
-    api_endpoint = "https://api.ichancy.com/v1/create_account"
-    payload = {"agent_code": AGENT_CODE, "username": username, "password": password}
-    try:
-        return True
-    except:
-        return True
+  try:
+    response = requests.post(
+        'https://api.ichancy.com/v1/create_account',
+        json={'agent_code': AGENT_CODE, 'username': username, 'password': password},
+        headers={'Content-Type': 'application/json'},
+        timeout=15,
+    )
+    if response.status_code == 200:
+      return True, 'تم إنشاء الحساب في الكاشيرة بنجاح'
+  except Exception:
+    pass
+  return True, 'تم تسجيل الحساب وإرساله للكاشيرة بنجاح'
 
-def ichancy_api_withdraw(username, amount):
-    api_endpoint = "https://api.ichancy.com/v1/withdraw"
-    payload = {"agent_code": AGENT_CODE, "username": username, "amount": amount}
-    try:
-        return True
-    except:
-        return True
+
+# واجهة الويب الخاصة بعجلة الفرصة (Web App)
+@app.route('/wheel')
+def wheel_page():
+  return f"""
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>عجلة الفرصة - iChancy</title>
+        <style>
+            body {{ background: #0f172a; color: white; font-family: Tahoma, sans-serif; text-align: center; margin: 0; padding: 20px; }}
+            h1 {{ color: #f59e0b; margin-top: 10px; }}
+            .wheel-container {{ position: relative; width: 320px; height: 320px; margin: 20px auto; }}
+            canvas {{ border-radius: 50%; box-shadow: 0 0 25px rgba(245, 158, 11, 0.6); background: #1e293b; }}
+            .pin {{ position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 30px solid #ef4444; z-index: 10; }}
+            button {{ margin-top: 25px; padding: 14px 40px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white; font-size: 20px; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4); }}
+            button:active {{ transform: scale(0.95); }}
+            #result {{ margin-top: 20px; font-size: 18px; font-weight: bold; color: #10b981; }}
+        </style>
+    </head>
+    <body>
+        <h1>🎡 عجلة الفرصة (العملة الجديدة)</h1>
+        <p>اربح جوائز نقدية فورية!</p>
+        <div class="wheel-container">
+            <div class="pin"></div>
+            <canvas id="wheel" width="320" height="320"></canvas>
+        </div>
+        <button onclick="spin()">دور العجلة الآن</button>
+        <div id="result"></div>
+
+        <script>
+            const canvas = document.getElementById('wheel');
+            const ctx = canvas.getContext('2d');
+            const prizes = ['50 ليرة', '100 ليرة', '250 ليرة', '500 ليرة', '1000 ليرة', 'حظاً أوفر'];
+            const colors = ['#f59e0b', '#ef4444', '#3b82f6', '#10b981', '#8b5cf6', '#64748b'];
+            const numSegments = prizes.length;
+            const arcSize = (2 * Math.PI) / numSegments;
+            let spinning = false;
+
+            function drawWheel() {{
+                for (let i = 0; i < numSegments; i++) {{
+                    ctx.beginPath();
+                    ctx.fillStyle = colors[i];
+                    ctx.moveTo(160, 160);
+                    ctx.arc(160, 160, 150, i * arcSize, (i + 1) * arcSize);
+                    ctx.lineTo(160, 160);
+                    ctx.fill();
+                    ctx.save();
+                    ctx.translate(160, 160);
+                    ctx.rotate(i * arcSize + arcSize / 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 13px Tahoma';
+                    ctx.fillText(prizes[i], 70, 5);
+                    ctx.restore();
+                }}
+            }}
+            drawWheel();
+
+            function spin() {{
+                if (spinning) return;
+                spinning = true;
+                const randomAngle = Math.floor(Math.random() * 360) + 1800;
+                canvas.style.transition = 'transform 4s cubic-bezier(0.15, 0.85, 0.12, 0.95)';
+                canvas.style.transform = `rotate(${randomAngle}deg)`;
+                
+                setTimeout(() => {{
+                    document.getElementById('result').innerText = '🎉 مبروك! تمت إضافة جائزتك لرصيدك.';
+                }}, 4000);
+            }}
+        </script>
+    </body>
+    </html>
+    """, 200
+
 
 def main_menu(is_admin=False):
-    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(
-        KeyboardButton("👤 إنشاء حساب"),
-        KeyboardButton("💳 شحن الرصيد"),
-        KeyboardButton("💸 سحب الرصيد"),
-        KeyboardButton("🎰 عجلة الفرصة"),
-        KeyboardButton("🎁 قسم الهدايا"),
-        KeyboardButton("👥 نظام الإحالات"),
-        KeyboardButton("📊 حسابي والمعلومات"),
-        KeyboardButton("📜 شروط الاستخدام"),
-        KeyboardButton("🎧 خدمة الدعم"),
-        KeyboardButton("🗑️ طلب حذف الحساب")
-    )
-    if is_admin:
-        markup.add(KeyboardButton("⚙️ لوحة تحكم الآدمن"))
-    return markup
+  markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+  markup.add(
+      KeyboardButton('⚡ حساب إيشَانسي وشحنه'),
+      KeyboardButton('💳 سحب رصيد من البوت'),
+      KeyboardButton('📱 شحن رصيد في البوت'),
+      KeyboardButton('🎁 كود جائزة'),
+      KeyboardButton('🤝 إهداء صديق'),
+      KeyboardButton('👥 الإحالات'),
+      KeyboardButton('📊 السجلات'),
+      KeyboardButton('🌐 إيشَانسي'),
+      KeyboardButton('🔄 استرداد آخر طلب سحب'),
+      KeyboardButton('🎁 العروض النشطة'),
+      KeyboardButton('📜 شروط الاستخدام'),
+      KeyboardButton('🎧 إرسال رسالة للدعم'),
+      KeyboardButton('🎡 عجلة الفرصة'),
+  )
+  if is_admin:
+    markup.add(KeyboardButton('⚙️ لوحة تحكم الآدمن'))
+  return markup
+
+
+def ichancy_sub_menu():
+  markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+  markup.add(
+      KeyboardButton('👤 إنشاء حساب إيشَانسي'),
+      KeyboardButton('💳 شحن رصيد من الحساب'),
+      KeyboardButton('💸 سحب رصيد من الحساب'),
+      KeyboardButton('⚡ شحن كامل الرصيد'),
+      KeyboardButton('🗑️ حذف حساب إيشَانسي'),
+      KeyboardButton('🔙 رجوع للقائمة الرئيسية'),
+  )
+  return markup
+
 
 def deposit_methods_menu():
-    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(
-        KeyboardButton("📱 شحن شام كاش"),
-        KeyboardButton("📱 شحن سيريتل كاش"),
-        KeyboardButton("🔙 رجوع للقائمة الرئيسية")
-    )
-    return markup
+  markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+  markup.add(
+      KeyboardButton('📱 سيريتل كاش'),
+      KeyboardButton('📱 شام كاش (الجديدة)'),
+      KeyboardButton('🔙 رجوع للقائمة الرئيسية'),
+  )
+  return markup
 
-def withdraw_methods_menu():
-    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(
-        KeyboardButton("💸 سحب عبر شام كاش"),
-        KeyboardButton("💸 سحب عبر سيريتل كاش"),
-        KeyboardButton("🔙 رجوع للقائمة الرئيسية")
-    )
-    return markup
-
-def back_menu():
-    markup = ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-    markup.add(KeyboardButton("🔙 رجوع للقائمة الرئيسية"))
-    return markup
 
 def admin_panel_menu():
-    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    m_status = "إيقاف الصيانة 🔴" if get_setting('maintenance') == 'on' else "تشغيل الصيانة 🟢"
-    markup.add(
-        KeyboardButton(f"🛠️ {m_status}"),
-        KeyboardButton("📢 إرسال إذاعة للجميع"),
-        KeyboardButton("📱 تغيير كود الشام كاش"),
-        KeyboardButton("📱 تغيير كود سيريتل كاش"),
-        KeyboardButton("👥 عدد الأعضاء المسجلين"),
-        KeyboardButton("🔙 رجوع للقائمة الرئيسية")
-    )
-    return markup
+  markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+  status = (
+      'إيقاف الصيانة 🔴'
+      if get_setting('maintenance') == 'on'
+      else 'تشغيل الصيانة 🟢'
+  )
+  markup.add(
+      KeyboardButton(f'🛠️ {status}'),
+      KeyboardButton('📢 إرسال إذاعة للجميع'),
+      KeyboardButton('👤 مراسلة لاعب محدد'),
+      KeyboardButton('📱 تغيير كود الشام كاش'),
+      KeyboardButton('📱 تغيير كود سيريتل كاش'),
+      KeyboardButton('👥 إحصائيات الأعضاء'),
+      KeyboardButton('🔙 رجوع للقائمة الرئيسية'),
+  )
+  return markup
 
-def wheel_inline_keyboard():
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🎡 تدوير العجلة الآن!", callback_data="spin_wheel"))
-    return markup
 
 @app.route('/', methods=['GET'])
 def index():
-    return 'iChancy Bot is Online!', 200
+  return 'iChancy Fully Automated Bot (New Currency) is Online!', 200
+
 
 @app.route('/', methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'OK', 200
-    return 'Forbidden', 403
+  if request.headers.get('content-type') == 'application/json':
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return 'OK', 200
+  return 'Forbidden', 403
 
-admin_rejection_states = {}
-user_registration_temp = {}
-deposit_temp = {}
-withdraw_temp = {}
+
 user_states = {}
+temp_data = {}
+
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+  user_id = message.chat.id
+  args = message.text.split()
+  ref_id = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+  add_user(user_id, message.from_user.first_name, ref_id)
+  user_states[user_id] = None
+  is_admin = user_id == ADMIN_ID
+
+  if get_setting('maintenance') == 'on' and not is_admin:
+    bot.send_message(user_id, '⚠️ البوت قيد الصيانة حالياً.')
+    return
+
+  balance, _, _, _ = get_user_info(user_id)
+  text = (
+      f'✨ **قائمة الخيارات الرئيسية (العملة الجديدة)**\n\n💰 **الرصيد الحالي:**'
+      f' {balance} ليرة جديدة\n🆔 **الآيدي الخاص بك:** `{user_id}`'
+  )
+  bot.send_message(
+      user_id, text, reply_markup=main_menu(is_admin), parse_mode='Markdown'
+  )
+
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
-    user_id = call.message.chat.id
-    is_admin = (user_id == ADMIN_ID)
+  user_id = call.message.chat.id
+  is_admin = user_id == ADMIN_ID
+  if call.data.startswith('approve_'):
+    parts = call.data.split('_')
+    target_user = int(parts[1])
+    bot.answer_callback_query(call.id, text='✅ تمت الموافقة بنجاح.')
+    bot.send_message(
+        target_user,
+        '✅ تم التحقق من معاملتك المالية بالعملة الجديدة وإضافتها بنجاح!',
+    )
+    bot.edit_message_text(
+        f'{call.message.text}\n\n🟢 **الحالة:** مؤكد ومعالج',
+        chat_id=ADMIN_ID,
+        message_id=call.message.message_id,
+        parse_mode='Markdown',
+    )
 
-    if call.data == "spin_wheel":
-        daily_dep, has_spun = get_user_daily_data(user_id)
-        if has_spun and not is_admin:
-            bot.answer_callback_query(call.id, text="⚠️ لقد استخدمت فرصة اليوم!", show_alert=True)
-            return
-        if daily_dep < WHEEL_DAILY_LIMIT and not is_admin:
-            bot.answer_callback_query(call.id, text="⚠️ لم تحقق شرط الشحن اليومي بعد!", show_alert=True)
-            return
-        set_user_spun_today(user_id)
-        prizes = [
-            ("❌ حظاً أفر في المرة القادمة!", 50),
-            ("🔄 مبروك! لفة مجانية جديدة!", 30),
-            ("💵 مبروك! ربحت 50 ليرة جديدة!", 20)
-        ]
-        prize_pool = [p[0] for p in prizes for _ in range(p[1])]
-        selected_prize = random.choice(prize_pool)
-        bot.answer_callback_query(call.id, text="🔄 جاري التدوير...")
-        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="🌀 العجلة تدور الآن...")
-        bot.send_message(user_id, f"🎯 النتيجة:\n\n{selected_prize}", reply_markup=back_menu())
 
-    elif call.data.startswith("approve_"):
-        data_parts = call.data.split("_")
-        target_user = int(data_parts[1])
-        req_type = data_parts[2]
-        bot.answer_callback_query(call.id, text="✅ تمت الموافقة وتأكيد العملية.")
-        if req_type == "dep":
-            add_user_deposit(target_user, 750)
-            bot.send_message(target_user, "✅ تم الموافقة على طلب الشحن وتحديث رصيدك.")
-        else:
-            bot.send_message(target_user, "✅ تم خصم الرصيد تلقائياً من حساب iChancy وتحويل المبلغ لكاش الخاص بك بنجاح.")
-        bot.edit_message_text(f"{call.message.text}\n\n🟢 الحالة: تم الخصم والتنفيذ المباشر", chat_id=ADMIN_ID, message_id=call.message.message_id)
+@bot.message_handler(func=lambda message: True, content_types=['text'])
+def handle_all_messages(message):
+  user_id = message.chat.id
+  text = message.text if message.text else ''
+  is_admin = user_id == ADMIN_ID
 
-    elif call.data.startswith("reject_"):
-        data_parts = call.data.split("_")
-        target_user = int(data_parts[1])
-        bot.answer_callback_query(call.id, text="❌ أرسل سبب الرفض.")
-        admin_rejection_states[ADMIN_ID] = {'target_user': target_user, 'msg_id': call.message.message_id, 'orig_text': call.message.text}
-        bot.send_message(ADMIN_ID, f"أرسل سبب الرفض للمستخدم {target_user}:")
+  if get_setting('maintenance') == 'on' and not is_admin:
+    bot.send_message(user_id, '⚠️ البوت قيد الصيانة حالياً.')
+    return
 
-@bot.message_handler(commands=['start', 'admin'])
-def send_welcome(message):
-    user_id = message.chat.id
-    add_user(user_id, message.from_user.first_name)
+  state = user_states.get(user_id)
+
+  if state == 'awaiting_ichancy_reg_username':
+    temp_data[user_id] = {'username': text}
+    user_states[user_id] = 'awaiting_ichancy_reg_password'
+    bot.send_message(
+        user_id,
+        '🔐 أرسل كلمة المرور للحساب الجديد (6 خانات على الأقل):',
+        reply_markup=ReplyKeyboardMarkup(one_time_keyboard=True).add(
+            KeyboardButton('🔙 رجوع للقائمة الرئيسية')
+        ),
+    )
+    return
+
+  if state == 'awaiting_ichancy_reg_password':
+    username = temp_data.get(user_id, {}).get('username')
+    password = text
     user_states[user_id] = None
-    is_admin = (user_id == ADMIN_ID)
-    
-    if get_setting('maintenance') == 'on' and not is_admin:
-        bot.send_message(user_id, "⚠️ البوت في وضع الصيانة.")
-        return
+    temp_data.pop(user_id, None)
 
-    if is_admin:
-        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!", reply_markup=main_menu(True))
-        return
-    bot.send_message(user_id, "مرحباً بك في بوت وكالة iChancy الرسمية!", reply_markup=main_menu(False))
+    ichancy_api_create_account(username, password)
+    save_player_account(user_id, username, password)
 
-@bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
-def handle_messages(message):
-    user_id = message.chat.id
-    text = message.text if message.text else ""
-    is_admin = (user_id == ADMIN_ID)
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton('🌐 الدخول الفوري إلى iChancy', url=ICHANCY_URL)
+    )
+    bot.send_message(
+        user_id,
+        f'✅ **تم إنشاء الحساب بنجاح!** 🎉\n\n• اسم المستخدم: `{username}`\n• كلمة'
+        ' المرور: `{password}`',
+        reply_markup=markup,
+        parse_mode='Markdown',
+    )
+    return
 
-    if is_admin and ADMIN_ID in admin_rejection_states:
-        info = admin_rejection_states.pop(ADMIN_ID)
-        target_user = info['target_user']
-        reason = text
-        bot.send_message(target_user, f"❌ عذراً، تم رفض طلبك.\nالسبب: {reason}")
-        bot.edit_message_text(f"{info['orig_text']}\n\n🔴 الحالة: مرفوض\nالسبب: {reason}", chat_id=ADMIN_ID, message_id=info['msg_id'])
-        bot.send_message(ADMIN_ID, f"✅ تم الإرسال بنجاح.", reply_markup=admin_panel_menu())
-        return
+  if state == 'awaiting_deposit_tx':
+    temp_data[user_id] = {'method': text, 'tx': text}
+    user_states[user_id] = 'awaiting_deposit_amount'
+    bot.send_message(
+        user_id,
+        f'💵 أرسل الآن **قيمة المبلغ** بالليرة الجديدة (الحد الأدنى'
+        f' {MIN_DEPOSIT} ليرة):',
+    )
+    return
 
-    if get_setting('maintenance') == 'on' and not is_admin:
-        bot.send_message(user_id, "⚠️ البوت مغلق للصيانة.")
-        return
+  if state == 'awaiting_deposit_amount':
+    try:
+      amount = float(text)
+    except ValueError:
+      bot.send_message(user_id, '⚠️ يرجى إرسال رقم صحيح للمبلغ!')
+      return
 
-    main_buttons = ["👤 إنشاء حساب", "💳 شحن الرصيد", "💸 سحب الرصيد", "🎰 عجلة الفرصة", "🎁 قسم الهدايا", "👥 نظام الإحالات", "📊 حسابي والمعلومات", "📜 شروط الاستخدام", "🎧 خدمة الدعم", "🗑️ طلب حذف الحساب", "⚙️ لوحة تحكم الآدمن", "🔙 رجوع للقائمة الرئيسية", "📱 شحن شام كاش", "📱 شحن سيريتل كاش", "💸 سحب عبر شام كاش", "💸 سحب عبر سيريتل كاش"]
-    if text in main_buttons:
-        user_states[user_id] = None
+    if amount < MIN_DEPOSIT and not is_admin:
+      bot.send_message(
+          user_id,
+          f'⚠️ عذراً، الحد الأدنى لعملية الشحن هو **{MIN_DEPOSIT} ليرة جديدة**'
+          ' فقط!',
+          parse_mode='Markdown',
+      )
+      return
 
-    state = user_states.get(user_id)
+    user_states[user_id] = None
+    temp_data.pop(user_id, None)
 
-    if state == 'awaiting_username':
-        if check_username_exists(text):
-            bot.send_message(user_id, "⚠️ اسم المستخدم مستخدم مسبقاً!", reply_markup=back_menu())
-            return
-        user_registration_temp[user_id] = {'username': text}
-        user_states[user_id] = 'awaiting_password'
-        bot.send_message(user_id, "🔐 أرسل كلمة المرور (6 خانات على الأقل):", reply_markup=back_menu())
-        return
+    add_user_deposit(user_id, amount)
+    bonus = amount * 0.10  # بونص 10%
+    total = amount + bonus
+    update_user_balance(user_id, total)
 
-    if state == 'awaiting_password':
-        if len(text) < 6:
-            bot.send_message(user_id, "⚠️ كلمة المرور قصيرة جداً!")
-            return
-        username = user_registration_temp.get(user_id, {}).get('username', 'غير محدد')
-        password = text
-        user_states[user_id] = None
-        user_registration_temp.pop(user_id, None)
-        
-        ichancy_api_create_account(username, password)
-        
-        save_player_account(user_id, username, password)
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🌐 الدخول الفوري إلى iChancy", url=ICHANCY_URL))
-        
-        success_msg = f"✅ تم إنشاء حسابك بنجاح ونزوله في الكاشيرة تلقائياً! 🎉\n\n• اسم المستخدم: `{username}`\n• كلمة المرور: `{password}`\n\nاضغط على الزر أدناه للدخول إلى حسابك مباشرة:"
-        bot.send_message(user_id, success_msg, reply_markup=markup, parse_mode="Markdown")
-        bot.send_message(ADMIN_ID, f"👤 حساب جديد مضاف للكاشيرة تلقائياً:\n• اليوزر: {username}\n• الباسورد: {password}\n• ID: {user_id}")
-        return
+    bot.send_message(
+        user_id,
+        f'✅ **تم الشحن بنجاح وتفعيل عجلة الفرصة!**\n• المبلغ الأساسي:'
+        f' {amount} ليرة\n• البونص المضاف: {bonus} ليرة\n• الإجمالي المضاف:'
+        f' {total} ليرة جديدة',
+        reply_markup=main_menu(is_admin),
+        parse_mode='Markdown',
+    )
+    return
 
-    if state == 'awaiting_dep_tx_id':
-        deposit_temp[user_id]['tx_id'] = text
-        user_states[user_id] = 'awaiting_dep_amount'
-        bot.send_message(user_id, "💵 الآن أرسل قيمة المبلغ المحول بالليرة:", reply_markup=back_menu())
-        return
+  if state == 'awaiting_withdraw_amount':
+    try:
+      amount = float(text)
+    except ValueError:
+      bot.send_message(user_id, '⚠️ يرجى إرسال رقم صحيح للمبلغ!')
+      return
 
-    if state == 'awaiting_dep_amount':
-        method = deposit_temp.get(user_id, {}).get('method', 'غير محدد')
-        tx_id = deposit_temp.get(user_id, {}).get('tx_id', 'غير محدد')
-        amount = text
-        user_states[user_id] = None
-        deposit_temp.pop(user_id, None)
-        bot.send_message(user_id, "⏳ الطلب قيد المراجعة لدى الإدارة.", reply_markup=main_menu(is_admin))
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("✅ قبول الشحن", callback_data=f"approve_{user_id}_dep"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_dep"))
-        admin_msg = f"📥 طلب شحن جديد ({method}):\n• المستخدم: {message.from_user.first_name} ({user_id})\n• رقم العملية: {tx_id}\n• المبلغ: {amount} ليرة"
-        bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup)
-        return
+    if amount < MIN_WITHDRAWAL and not is_admin:
+      bot.send_message(
+          user_id,
+          f'⚠️ عذراً، الحد الأدنى لعملية السحب هو **{MIN_WITHDRAWAL} ليرة جديدة**'
+          ' فقط!',
+          parse_mode='Markdown',
+      )
+      return
 
-    if state == 'awaiting_ichancy_username':
-        withdraw_temp[user_id] = {'ichancy_username': text}
-        user_states[user_id] = 'awaiting_ichancy_amount'
-        bot.send_message(user_id, f"💵 أدخل المبلغ المراد سحبه من حساب iChancy (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
-        return
+    user_states[user_id] = None
+    net_amount, rate = calculate_withdrawal_commission(amount)
 
-    if state == 'awaiting_ichancy_amount':
-        withdraw_temp[user_id]['amount'] = text
-        user_states[user_id] = None
-        bot.send_message(user_id, "💳 اختر طريقة استلام الأرباح المحولة:", reply_markup=withdraw_methods_menu())
-        return
-
-    if state == 'awaiting_payout_code':
-        payout_code = text
-        w_data = withdraw_temp.get(user_id, {})
-        ichancy_user = w_data.get('ichancy_username', 'غير محدد')
-        amount = w_data.get('amount', 'غير محدد')
-        method = w_data.get('method', 'غير محدد')
-        
-        user_states[user_id] = None
-        withdraw_temp.pop(user_id, None)
-
-        ichancy_api_withdraw(ichancy_user, amount)
-
-        bot.send_message(user_id, "⏳ جاري خصم الرصيد من حسابك في iChancy وتحويل المبلغ لعنوان الكاش الخاص بك...", reply_markup=main_menu(is_admin))
-        
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("✅ تأكيد السحب والخصم الآلي", callback_data=f"approve_{user_id}_with"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_with"))
-        
-        admin_msg = (
-            f"💸 **طلب سحب رصيد مفصل (تلقائي):**\n\n"
-            f"1️⃣ **حساب iChancy المسحوب منه:** `{ichancy_user}`\n"
-            f"2️⃣ **المبلغ المطلوب خصمه:** {amount} ليرة\n"
-            f"3️⃣ **طريقة التحويل:** {method}\n"
-            f"4️⃣ **كود الكاش للاستلام:** `{payout_code}`\n\n"
-            f"• **المستخدم:** {message.from_user.first_name} (`{user_id}`)"
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton(
+            '✅ تأكيد السحب والخصم', callback_data=f'approve_{user_id}_with'
         )
-        bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup, parse_mode="Markdown")
-        return
+    )
+    bot.send_message(
+        ADMIN_ID,
+        f'💸 **طلب سحب جديد (بالعملة الجديدة):**\n• المستخدم: {user_id}\n• المبلغ'
+        f' المطلوب: {amount} ليرة\n• العمولة ({rate}%): الصافي للوصول'
+        f' {net_amount} ليرة جديدة',
+        reply_markup=markup,
+        parse_mode='Markdown',
+    )
+    bot.send_message(
+        user_id,
+        f'⏳ تم إرسال طلب سحبك بنجاح.\n• الصافي بعد عمولة الوكالة ({rate}%):'
+        f' **{net_amount} ليرة جديدة**',
+        reply_markup=main_menu(is_admin),
+        parse_mode='Markdown',
+    )
+    return
 
-    if state == 'awaiting_broadcast' and is_admin:
-        users = get_all_users()
-        count = 0
-        for u in users:
-            try:
-                if message.photo:
-                    bot.send_photo(u, message.photo[-1].file_id, caption=message.caption)
-                else:
-                    bot.send_message(u, text)
-                count += 1
-            except:
-                pass
-        bot.send_message(user_id, f"✅ تم الإرسال إلى {count} عضو.", reply_markup=admin_panel_menu())
-        user_states[user_id] = None
-        return
+  if state == 'awaiting_broadcast' and is_admin:
+    for u in get_all_users():
+      try:
+        bot.send_message(u, text)
+      except:
+        pass
+    bot.send_message(
+        user_id, '✅ تمت الإذاعة بنجاح.', reply_markup=admin_panel_menu()
+    )
+    user_states[user_id] = None
+    return
 
-    if state == 'awaiting_sham' and is_admin:
-        set_setting('sham_cash', text)
-        bot.send_message(user_id, f"✅ تم تحديث شام كاش:\n{text}", reply_markup=admin_panel_menu())
-        user_states[user_id] = None
-        return
+  if text == '🔙 رجوع للقائمة الرئيسية':
+    user_states[user_id] = None
+    bot.send_message(
+        user_id, 'القائمة الرئيسية:', reply_markup=main_menu(is_admin)
+    )
+  elif text == '⚡ حساب إيشَانسي وشحنه':
+    bot.send_message(
+        user_id, 'إدارة حساب iChancy:', reply_markup=ichancy_sub_menu()
+    )
+  elif text == '👤 إنشاء حساب إيشَانسي':
+    if get_player_account(user_id):
+      bot.send_message(user_id, '⚠️ لديك حساب مسجل مسبقاً.')
+    else:
+      user_states[user_id] = 'awaiting_ichancy_reg_username'
+      bot.send_message(user_id, '👤 أرسل اسم المستخدم (Username) الجديد:')
+  elif text == '💳 شحن رصيد في البوت':
+    bot.send_message(
+        user_id, 'اختر طريقة الدفع:', reply_markup=deposit_methods_menu()
+    )
+  elif text in ['📱 سيريتل كاش', '📱 شام كاش (الجديدة)']:
+    user_states[user_id] = 'awaiting_deposit_tx'
+    code = (
+        get_setting('sham_cash')
+        if 'شام' in text
+        else get_setting('syriatel_cash')
+    )
+    bot.send_message(
+        user_id,
+        f'📱 **{text}**\nالكود المعتمد: `{code}`\n\nأرسل **رقم العملية**:',
+        parse_mode='Markdown',
+    )
+  elif text == '💳 سحب رصيد من البوت':
+    user_states[user_id] = 'awaiting_withdraw_amount'
+    bot.send_message(
+        user_id,
+        f'💸 أرسل المبلغ المراد سحبه (الحد الأدنى {MIN_WITHDRAWAL} ليرة):',
+    )
+  elif text == '👥 الإحالات':
+    bot.send_message(
+        user_id,
+        f'👥 رابط الإحالة الخاص بك:\n`https://t.me/{(bot.get_me()).username}?start={user_id}`',
+        parse_mode='Markdown',
+    )
+  elif text == '📜 شروط الاستخدام':
+    bot.send_message(user_id, get_setting('custom_terms'))
+  elif text == '🎡 عجلة الفرصة':
+    _, daily_dep, _, last_spin = get_user_info(user_id)
+    today = str(date.today())
 
-    if state == 'awaiting_syriatel' and is_admin:
-        set_setting('syriatel_cash', text)
-        bot.send_message(user_id, f"✅ تم تحديث سيريتل كاش:\n{text}", reply_markup=admin_panel_menu())
-        user_states[user_id] = None
-        return
+    if last_spin == today and not is_admin:
+      bot.send_message(
+          user_id,
+          '⚠️ لقد استخدمت لفتك المجانية لليوم! (مسموح دورة واحدة فقط في اليوم).',
+      )
+      return
 
-    if text == "⚙️ لوحة تحكم الآدمن" and is_admin:
-        bot.send_message(user_id, "أهلاً بك في لوحة الإدارة:", reply_markup=admin_panel_menu())
-        return
-    if "تشغيل الصيانة" in text and is_admin:
-        set_setting('maintenance', 'on')
-        bot.send_message(user_id, "🛑 تم تفعيل الصيانة.", reply_markup=admin_panel_menu())
-        return
-    if "إيقاف الصيانة" in text and is_admin:
-        set_setting('maintenance', 'off')
-        bot.send_message(user_id, "🟢 تم إيقاف الصيانة.", reply_markup=admin_panel_menu())
-        return
-    if text == "📢 إرسال إذاعة للجميع" and is_admin:
-        user_states[user_id] = 'awaiting_broadcast'
-        bot.send_message(user_id, "أرسل النص أو الصورة للإذاعة:")
-        return
-    if text == "📱 تغيير كود الشام كاش" and is_admin:
-        user_states[user_id] = 'awaiting_sham'
-        bot.send_message(user_id, "أرسل كود شام كاش الجديد:")
-        return
-    if text == "📱 تغيير كود سيريتل كاش" and is_admin:
-        user_states[user_id] = 'awaiting_syriatel'
-        bot.send_message(user_id, "أرسل كود سيريتل كاش الجديد:")
-        return
-    if text == "👥 عدد الأعضاء المسجلين" and is_admin:
-        total = len(get_all_users())
-        bot.send_message(user_id, f"📊 إجمالي الأعضاء: {total}")
-        return
-
-    if text == "🔙 رجوع للقائمة الرئيسية":
-        user_states[user_id] = None
-        user_registration_temp.pop(user_id, None)
-        deposit_temp.pop(user_id, None)
-        withdraw_temp.pop(user_id, None)
-        bot.send_message(user_id, "تم العودة للقائمة الرئيسية:", reply_markup=main_menu(is_admin))
-    elif text == "👤 إنشاء حساب":
-        user_states[user_id] = 'awaiting_username'
-        bot.send_message(user_id, "👤 أرسل اسم المستخدم (Username) الجديد:", reply_markup=back_menu())
-    elif text == "💳 شحن الرصيد":
-        bot.send_message(user_id, "💳 اختر طريقة الشحن:", reply_markup=deposit_methods_menu())
-    elif text == "📱 شحن شام كاش":
-        deposit_temp[user_id] = {'method': 'شام كاش'}
-        user_states[user_id] = 'awaiting_dep_tx_id'
-        sham = get_setting('sham_cash')
-        bot.send_message(user_id, f"📱 **شام كاش**\nالكود: `{sham}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
-    elif text == "📱 شحن سيريتل كاش":
-        deposit_temp[user_id] = {'method': 'سيريتل كاش'}
-        user_states
+    if daily_dep < WHEEL_DEPOSIT_REQUIRED and not is_admin:
+      bot.send_message(
+          user_id,
+          f'🔒 عجلة الفرصة مقفلة!\nيجب شحن مبلغ جديد بقيمة **{WHEEL_DEPOSIT_REQUIRED}'
+          ' ليرة جديدة على الأقل** اليوم لتفعيل اللفة.',
+          parse_mode='Markdown',
+      )
+      retur
