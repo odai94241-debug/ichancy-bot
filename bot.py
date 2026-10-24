@@ -626,9 +626,10 @@ def handle_all_messages(message):
   elif text == '👥 الإحالات':
     ref_count, earnings, net_loss = calculate_referral_earnings(user_id)
     ref_link = f'https://t.me/{(bot.get_me()).username}?start={user_id}'
+
     msg = (
-        f'👥 **نظام الإحالات (5% من صافي الخسارة):**\n\n'
+        '👥 **نظام الإحالات (5% من صافي الخسارة):**\n\n'
         f'• عدد المدعويين: `{ref_count}` لاعبين\n'
         f'• إجمالي صافي خسارة الإحالات: `{net_loss}` ليرة جديدة\n'
         f'• أرباحك الحالية المستحقة (5%): **{earnings} ليرة جديدة**\n\n'
-        f'*(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون ال
+        '(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون الأر
