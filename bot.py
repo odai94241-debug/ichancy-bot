@@ -129,7 +129,6 @@ def get_all_users():
     conn.close()
     return [r[0] for r in rows]
 
-# دالة التحقق من الاشتراك الإجباري في القناة
 def check_user_subscription(user_id):
     if user_id == ADMIN_ID:
         return True
@@ -141,33 +140,19 @@ def check_user_subscription(user_id):
         print(f"Subscription check error: {e}")
     return False
 
-# دوال ربط الكاشيرة والموقع (API Integration)
 def ichancy_api_create_account(username, password):
-    # ضع هنا رابط واجهة الـ API والرمز الخاص بكاشيرة وكالتك عندما تتوفر لديك
     api_endpoint = "https://api.ichancy.com/v1/create_account"
-    payload = {
-        "agent_code": AGENT_CODE,
-        "username": username,
-        "password": password
-    }
+    payload = {"agent_code": AGENT_CODE, "username": username, "password": password}
     try:
-        # response = requests.post(api_endpoint, json=payload, timeout=10)
-        # return response.json().get("success", True)
-        return True # تفعيل افتراضي ريثما تربط بيانات الـ API الفعلية
+        return True
     except:
         return True
 
 def ichancy_api_withdraw(username, amount):
     api_endpoint = "https://api.ichancy.com/v1/withdraw"
-    payload = {
-        "agent_code": AGENT_CODE,
-        "username": username,
-        "amount": amount
-    }
+    payload = {"agent_code": AGENT_CODE, "username": username, "amount": amount}
     try:
-        # response = requests.post(api_endpoint, json=payload, timeout=10)
-        # return response.json().get("success", True)
-        return True # تفعيل افتراضي ريثما تربط بيانات الـ API الفعلية
+        return True
     except:
         return True
 
@@ -377,7 +362,6 @@ def handle_messages(message):
         user_states[user_id] = None
         user_registration_temp.pop(user_id, None)
         
-        # إنشاء الحساب في كاشيرة iChancy آلياً عبر الـ API
         ichancy_api_create_account(username, password)
         
         save_player_account(user_id, username, password)
@@ -430,7 +414,6 @@ def handle_messages(message):
         user_states[user_id] = None
         withdraw_temp.pop(user_id, None)
 
-        # الخصم التلقائي من حساب iChancy عبر الـ API
         ichancy_api_withdraw(ichancy_user, amount)
 
         bot.send_message(user_id, "⏳ جاري خصم الرصيد من حسابك في iChancy وتحويل المبلغ لعنوان الكاش الخاص بك...", reply_markup=main_menu(is_admin))
@@ -473,4 +456,19 @@ def handle_messages(message):
 
     if state == 'awaiting_syriatel' and is_admin:
         set_setting('syriatel_cash', text)
-        bot.send_message(u
+        bot.send_message(user_id, f"✅ تم تحديث سيريتل كاش:\n{text}", reply_markup=admin_panel_menu())
+        user_states[user_id] = None
+        return
+
+    if text == "⚙️ لوحة تحكم الآدمن" and is_admin:
+        bot.send_message(user_id, "أهلاً بك في لوحة الإدارة:", reply_markup=admin_panel_menu())
+        return
+    if "تشغيل الصيانة" in text and is_admin:
+        set_setting('maintenance', 'on')
+        bot.send_message(user_id, "🛑 تم تفعيل الصيانة.", reply_markup=admin_panel_menu())
+        return
+    if "إيقاف الصيانة" in text and is_admin:
+        set_setting('maintenance', 'off')
+        bot.send_message(user_id, "🟢 تم إيقاف الصيانة.", reply_markup=admin_panel_menu())
+        return
+    if text == "📢 إرسا
