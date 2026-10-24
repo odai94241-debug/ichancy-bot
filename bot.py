@@ -1,6 +1,5 @@
 import json
 import os
-import random
 import sqlite3
 from datetime import date
 from flask import Flask, request
@@ -27,6 +26,15 @@ REFERRAL_PROFIT_SHARE = 0.05
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
+
+
+# إجبار تفعيل الـ Webhook أوتوماتيكياً مع تيليجرام
+def setup_webhook():
+  try:
+    bot.remove_webhook()
+    bot.set_webhook(url=f'{RENDER_URL}/')
+  except Exception as e:
+    print(f'Webhook Setup Error: {e}')
 
 
 def init_db():
@@ -232,25 +240,6 @@ def calculate_withdrawal_commission(amount):
   return amount - deduction, rate * 100
 
 
-def register_account_to_panel(username, password):
-  try:
-    payload = {
-        'username': username,
-        'email': f'{username}@ichancy.com',
-        'password': password,
-        'agent_code': AGENT_CODE,
-    }
-    requests.post(
-        f'{ICHANCY_PANEL_URL}/api/register',
-        json=payload,
-        headers={'Content-Type': 'application/json'},
-        timeout=10,
-    )
-  except Exception:
-    pass
-  return True
-
-
 @app.route('/wheel')
 def wheel_page():
   return """
@@ -364,7 +353,6 @@ def admin_panel_menu():
   markup.add(
       KeyboardButton(f'🛠️ {status}'),
       KeyboardButton('📢 إرسال إذاعة للجميع'),
-      KeyboardButton('👤 مراسلة لاعب محدد'),
       KeyboardButton('📱 تغيير كود الشام كاش'),
       KeyboardButton('📱 تغيير كود سيريتل كاش'),
       KeyboardButton('👥 إحصائيات الأعضاء'),
@@ -421,28 +409,6 @@ def send_welcome(message):
   )
 
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callbacks(call):
-  user_id = call.message.chat.id
-  if call.data.startswith('approve_'):
-    parts = call.data.split('_')
-    target_user = int(parts[1])
-    req_type = parts[2] if len(parts) > 2 else 'dep'
-
-    if req_type == 'with':
-      amount = temp_data.get(target_user, {}).get('with_amount', 0)
-      add_user_withdrawal(target_user, amount)
-
-    bot.answer_callback_query(call.id, text='✅ تمت الموافقة بنجاح.')
-    bot.send_message(target_user, '✅ تم اعتماد المعاملة المالية بنجاح!')
-    bot.edit_message_text(
-        f'{call.message.text}\n\n🟢 **الحالة:** مؤكد ومعالج',
-        chat_id=ADMIN_ID,
-        message_id=call.message.message_id,
-        parse_mode='Markdown',
-    )
-
-
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def handle_all_messages(message):
   user_id = message.chat.id
@@ -471,7 +437,6 @@ def handle_all_messages(message):
     user_states[user_id] = None
     temp_data.pop(user_id, None)
 
-    register_account_to_panel(username, password)
     save_player_account(user_id, username, password)
 
     markup = InlineKeyboardMarkup()
@@ -487,7 +452,7 @@ def handle_all_messages(message):
     )
     bot.send_message(
         ADMIN_ID,
-        f'👤 **تم تسجيل حساب جديد تحت كود وكالتك (`{AGENT_CODE}`):**\n• اليوزر:'
+        f'👤 **طلب إنشاء حساب جديد تحت كود وكالتك (`{AGENT_CODE}`):**\n• اليوزر:'
         f' `{username}`\n• الباسورد: `{password}`\n• الآيدي: `{user_id}`',
         parse_mode='Markdown',
     )
@@ -551,23 +516,12 @@ def handle_all_messages(message):
       return
 
     user_states[user_id] = None
-    if user_id not in temp_data:
-      temp_data[user_id] = {}
-    temp_data[user_id]['with_amount'] = amount
-
     net_amount, rate = calculate_withdrawal_commission(amount)
 
-    markup = InlineKeyboardMarkup()
-    markup.add(
-        InlineKeyboardButton(
-            '✅ تأكيد السحب والخصم', callback_data=f'approve_{user_id}_with'
-        )
-    )
     bot.send_message(
         ADMIN_ID,
         f'💸 **طلب سحب جديد:**\n• المستخدم: {user_id}\n• المبلغ: {amount}'
         f' ليرة\n• العمولة ({rate}%): الصافي {net_amount} ليرة جديدة',
-        reply_markup=markup,
         parse_mode='Markdown',
     )
     bot.send_message(
@@ -627,14 +581,50 @@ def handle_all_messages(message):
     ref_count, earnings, net_loss = calculate_referral_earnings(user_id)
     ref_link = f'https://t.me/{(bot.get_me()).username}?start={user_id}'
 
-    msg = f"""👥 **نظام الإحالات (5% من صافي الخسارة):**
-
-• عدد المدعويين: `{ref_count}` لاعبين
-• إجمالي صافي خسارة الإحالات: `{net_loss}` ليرة جديدة
-• أرباحك الحالية المستحقة (5%): **{earnings} ليرة جديدة**
-
-(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون الأرباح 0 ليرة)
-
-🔗 **رابط الإحالة الخاص بك:**
-`{ref_link}`"""
+    msg = (
+        '👥 **نظام الإحالات (5% من صافي الخسارة):**\n\n• عدد المدعويين:'
+        f' `{ref_count}` لاعبين\n• إجمالي صافي خسارة الإحالات: `{net_loss}`'
+        f' ليرة جديدة\n• أرباحك الحالية المستحقة (5%): **{earnings} ليرة'
+        ' جديدة**\n\n(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون الأرباح 0'
+        f' ليرة)\n\n🔗 **رابط الإحالة الخاص بك:**\n`{ref_link}`'
+    )
+    bot.send_message(user_id, msg, parse_mode='Markdown', reply_markup=back_menu())
+  elif text == '👤 إنشاء حساب إيشَانسي':
+    acc = get_player_account(user_id)
+    if acc:
+      bot.send_message(
+          user_id,
+          f'⚠️ لديك حساب مسجل مسبقاً:\n• اليوزر: `{acc[0]}`\n• الباسورد:'
+          f' `{acc[1]}`',
+          parse_mode='Markdown',
+      )
+    else:
+      user_states[user_id] = 'awaiting_ichancy_reg_username'
+      bot.send_message(
+          user_id,
+          '👤 أرسل اسم المستخدم (Username) الجديد لحساب iChancy:',
+          reply_markup=back_menu(),
+      )
+  elif text == '💳 شحن رصيد من الحساب' or text == '💸 سحب رصيد من الحساب':
+    balance, _, _, _ = get_user_info(user_id)
+    if balance <= 0:
+      bot.send_message(
+          user_id,
+          '⚠️ **عذراً، لا يوجد لديك رصيد كافٍ في البوت (الرصيد: 0 ليرة'
+          ' جديدة).**',
+          parse_mode='Markdown',
+      )
+    else:
+      bot.send_message(
+          user_id, f'• رصيدك الحالي: {balance} ليرة جديدة.', reply_markup=back_menu()
+      )
+  elif text == '⚡ شحن كامل الرصيد':
+    balance, _, _, _ = get_user_info(user_id)
+    if balance <= 0:
+      bot.send_message(
+          user_id,
+          '⚠️ **عذراً، لا يوجد رصيد كافٍ في حسابك لشحنه بالكامل (الرصيد: 0 ليرة'
+          ' جديدة).**',
+          parse_mode='Markdown',
+      )
  
