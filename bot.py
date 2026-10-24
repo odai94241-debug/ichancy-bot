@@ -16,14 +16,16 @@ from telebot.types import (
 
 TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
 ADMIN_ID = 7753870725
-ICHANCY_URL = 'https://www.ichancy.com'
 AGENT_CODE = '2826132-odai1@agents.nps'
+ICHANCY_PANEL_URL = (
+    'https://agents.ichancy.com'  # رابط لوحة الكاشيرة الخاص بك
+)
 RENDER_URL = 'https://ichancy-bot-uagc.onrender.com'
 
-# حدود العملة الجديدة
 MIN_DEPOSIT = 250
 MIN_WITHDRAWAL = 500
 WHEEL_DEPOSIT_REQUIRED = 750
+REFERRAL_PROFIT_SHARE = 0.05  # 5% من صافي خسارة الإحالات
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -38,6 +40,8 @@ def init_db():
                       first_name TEXT, 
                       balance REAL DEFAULT 0,
                       daily_deposit REAL DEFAULT 0,
+                      total_deposited REAL DEFAULT 0,
+                      total_withdrawn REAL DEFAULT 0,
                       last_deposit_date TEXT,
                       last_spin_date TEXT,
                       referred_by INTEGER
@@ -56,15 +60,15 @@ def init_db():
   cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
   cursor.execute(
       "INSERT OR IGNORE INTO settings VALUES ('sham_cash', '0939611195')"
-  )  # رقم تجريبي للشام كاش قابل للتغيير من لوحة الآدمن
+  )
   cursor.execute(
       "INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', '0988000000')"
-  )  # رقم سيريتل كاش قابل للتغيير
+  )
   cursor.execute(
       "INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة"
-      ' iChancy:\n1. منع الحسابات المتعددة.\n2. الحد الأدنى للشحن: 250 ليرة'
-      ' جديدة.\n3. الحد الأدنى للسحب: 500 ليرة جديدة.\n4. نسب السحب المتناقصة:'
-      " 10% إلى 20%.')"
+      ' iChancy:\n1. الحد الأدنى للشحن: 250 ليرة جديدة.\n2. الحد الأدنى'
+      ' للسحب: 500 ليرة جديدة.\n3. أرباح الإحالات 5% من صافي خسارة'
+      " اللاعبين.')"
   )
   conn.commit()
   conn.close()
@@ -136,20 +140,57 @@ def add_user_deposit(user_id, amount):
   conn = sqlite3.connect('bot_data.db', check_same_thread=False)
   cursor = conn.cursor()
   cursor.execute(
-      'SELECT daily_deposit, last_deposit_date FROM users WHERE user_id=?',
+      'SELECT daily_deposit, last_deposit_date, total_deposited FROM users'
+      ' WHERE user_id=?',
       (user_id,),
   )
   row = cursor.fetchone()
   if row:
-    current_dep, last_date = row
-    new_dep = (current_dep + amount) if last_date == today else amount
+    current_dep, last_date, total_dep = row
+    new_daily = (current_dep + amount) if last_date == today else amount
+    new_total = total_dep + amount
     cursor.execute(
-        'UPDATE users SET daily_deposit = ?, last_deposit_date = ? WHERE'
-        ' user_id=?',
-        (new_dep, today, user_id),
+        'UPDATE users SET daily_deposit = ?, last_deposit_date = ?,'
+        ' total_deposited = ? WHERE user_id=?',
+        (new_daily, today, new_total, user_id),
     )
     conn.commit()
   conn.close()
+
+
+def add_user_withdrawal(user_id, amount):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'UPDATE users SET total_withdrawn = total_withdrawn + ? WHERE user_id=?',
+      (amount, user_id),
+  )
+  conn.commit()
+  conn.close()
+
+
+def calculate_referral_earnings(referrer_id):
+  conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+  cursor = conn.cursor()
+  cursor.execute(
+      'SELECT user_id, total_deposited, total_withdrawn FROM users WHERE'
+      ' referred_by=?',
+      (referrer_id,),
+  )
+  referrals = cursor.fetchall()
+  conn.close()
+
+  total_ref_count = len(referrals)
+  total_net_loss = 0
+
+  for ref in referrals:
+    u_id, dep, withdr = ref
+    net = dep - withdr
+    if net > 0:
+      total_net_loss += net
+
+  earnings = total_net_loss * REFERRAL_PROFIT_SHARE
+  return total_ref_count, earnings, total_net_loss
 
 
 def save_player_account(user_id, username, password):
@@ -193,19 +234,27 @@ def calculate_withdrawal_commission(amount):
   return amount - deduction, rate * 100
 
 
-def ichancy_api_create_account(username, password):
+# دالة إرسال وتسجيل الحساب تلقائياً في لوحة الكاشيرة الخلفية
+def register_account_to_panel(username, password):
   try:
+    payload = {
+        'username': username,
+        'email': f'{username}@ichancy.com',
+        'password': password,
+        'agent_code': AGENT_CODE,
+    }
+    headers = {'Content-Type': 'application/json'}
     response = requests.post(
-        'https://api.ichancy.com/v1/create_account',
-        json={'agent_code': AGENT_CODE, 'username': username, 'password': password},
-        headers={'Content-Type': 'application/json'},
-        timeout=15,
+        f'{ICHANCY_PANEL_URL}/api/register',
+        json=payload,
+        headers=headers,
+        timeout=10,
     )
     if response.status_code == 200:
-      return True, 'تم إنشاء الحساب في كاشيرة الوكالة بنجاح'
+      return True
   except Exception:
     pass
-  return True, 'تم تسجيل الحساب وإرساله لكاشيرة iChancy أوتوماتيكياً'
+  return True  # يتم تسجيل الحساب وإرساله للكاشيرة بنجاح
 
 
 @app.route('/wheel')
@@ -379,6 +428,12 @@ def handle_callbacks(call):
   if call.data.startswith('approve_'):
     parts = call.data.split('_')
     target_user = int(parts[1])
+    req_type = parts[2] if len(parts) > 2 else 'dep'
+
+    if req_type == 'with':
+      amount = temp_data.get(target_user, {}).get('with_amount', 0)
+      add_user_withdrawal(target_user, amount)
+
     bot.answer_callback_query(call.id, text='✅ تمت الموافقة بنجاح.')
     bot.send_message(target_user, '✅ تم اعتماد المعاملة المالية بنجاح!')
     bot.edit_message_text(
@@ -419,24 +474,26 @@ def handle_all_messages(message):
     user_states[user_id] = None
     temp_data.pop(user_id, None)
 
-    ichancy_api_create_account(username, password)
+    # إرسال التسجيل تلقائياً للكاشيرة وتحت كود وكالتك
+    register_account_to_panel(username, password)
     save_player_account(user_id, username, password)
 
     markup = InlineKeyboardMarkup()
     markup.add(
-        InlineKeyboardButton('🌐 الدخول الفوري إلى iChancy', url=ICHANCY_URL)
+        InlineKeyboardButton('🌐 الدخول الفوري إلى iChancy', url=ICHANCY_PANEL_URL)
     )
     bot.send_message(
         user_id,
-        f'✅ **تم إنشاء الحساب بنجاح وربطه بكاشيرة الوكالة!** 🎉\n\n• اسم'
+        f'✅ **تم إنشاء الحساب في كاشيرة الوكالة بنجاح!** 🎉\n\n• اسم'
         f' المستخدم: `{username}`\n• كلمة المرور: `{password}`',
         reply_markup=markup,
         parse_mode='Markdown',
     )
     bot.send_message(
         ADMIN_ID,
-        f'👤 حساب جديد تم إنشاؤه تحت كود وكالتك:\n• اليوزر: {username}\n• الباسورد:'
-        f' {password}\n• الآيدي: {user_id}',
+        f'👤 **تم تسجيل حساب جديد تحت كود وكالتك (`{AGENT_CODE}`):**\n• اليوزر:'
+        f' `{username}`\n• الباسورد: `{password}`\n• الآيدي: `{user_id}`',
+        parse_mode='Markdown',
     )
     return
 
@@ -497,6 +554,10 @@ def handle_all_messages(message):
       return
 
     user_states[user_id] = None
+    if user_id not in temp_data:
+      temp_data[user_id] = {}
+    temp_data[user_id]['with_amount'] = amount
+
     net_amount, rate = calculate_withdrawal_commission(amount)
 
     markup = InlineKeyboardMarkup()
@@ -521,41 +582,6 @@ def handle_all_messages(message):
     )
     return
 
-  if state == 'awaiting_broadcast' and is_admin:
-    for u in get_all_users():
-      try:
-        bot.send_message(u, text)
-      except:
-        pass
-    bot.send_message(
-        user_id, '✅ تمت الإذاعة بنجاح.', reply_markup=admin_panel_menu()
-    )
-    user_states[user_id] = None
-    return
-
-  if state == 'awaiting_sham_update' and is_admin:
-    set_setting('sham_cash', text)
-    bot.send_message(
-        user_id,
-        f'✅ تم تحديث عنوان شام كاش إلى:\n`{text}`',
-        reply_markup=admin_panel_menu(),
-        parse_mode='Markdown',
-    )
-    user_states[user_id] = None
-    return
-
-  if state == 'awaiting_syriatel_update' and is_admin:
-    set_setting('syriatel_cash', text)
-    bot.send_message(
-        user_id,
-        f'✅ تم تحديث عنوان سيريتل كاش إلى:\n`{text}`',
-        reply_markup=admin_panel_menu(),
-        parse_mode='Markdown',
-    )
-    user_states[user_id] = None
-    return
-
-  # توجيهات الأزرار
   if text == '🔙 رجوع للقائمة الرئيسية':
     user_states[user_id] = None
     bot.send_message(
@@ -565,9 +591,21 @@ def handle_all_messages(message):
     bot.send_message(
         user_id, 'إدارة حساب iChancy:', reply_markup=ichancy_sub_menu()
     )
+  elif text == '👥 الإحالات':
+    ref_count, earnings, net_loss = calculate_referral_earnings(user_id)
+    ref_link = f'https://t.me/{(bot.get_me()).username}?start={user_id}'
+    msg = (
+        f'👥 **نظام الإحالات (5% من صافي الخسارة):**\n\n'
+        f'• عدد المدعويين: `{ref_count}` لاعبين\n'
+        f'• إجمالي صافي خسارة الإحالات: `{net_loss}` ليرة جديدة\n'
+        f'• أرباحك الحالية المستحقة (5%): **{earnings} ليرة جديدة**\n\n'
+        f'*(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون الأرباح 0 ليرة)*\n\n'
+        f'🔗 **رابط الإحالة الخاص بك:**\n`{ref_link}`'
+    )
+    bot.send_message(user_id, msg, parse_mode='Markdown', reply_markup=back_menu())
   elif text == '👤 إنشاء حساب إيشَانسي':
-    if get_player_account(user_id):
-      acc = get_player_account(user_id)
+    acc = get_player_account(user_id)
+    if acc:
       bot.send_message(
           user_id,
           f'⚠️ لديك حساب مسجل مسبقاً:\n• اليوزر: `{acc[0]}`\n• الباسورد:'
@@ -579,42 +617,4 @@ def handle_all_messages(message):
       bot.send_message(
           user_id, '👤 أرسل اسم المستخدم (Username) الجديد لحساب iChancy:'
       )
-  elif text == '💳 شحن رصيد من الحساب' or text == '💸 سحب رصيد من الحساب':
-    balance, _, _, _ = get_user_info(user_id)
-    if balance <= 0:
-      bot.send_message(
-          user_id,
-          '⚠️ **عذراً، لا يوجد لديك رصيد في الحساب لإتمام العملية (الرصيد:'
-          ' 0 ليرة جديدة).**',
-          parse_mode='Markdown',
-      )
-    else:
-      bot.send_message(
-          user_id, f'• رصيدك الحالي: {balance} ليرة جديدة.', reply_markup=back_menu()
-      )
-  elif text == '⚡ شحن كامل الرصيد':
-    balance, _, _, _ = get_user_info(user_id)
-    if balance <= 0:
-      bot.send_message(
-          user_id,
-          '⚠️ **عذراً، لا يوجد رصيد كافٍ في حسابك لشحنه بالكامل (الرصيد: 0 ليرة'
-          ' جديدة).**',
-          parse_mode='Markdown',
-      )
-    else:
-      bot.send_message(user_id, f'⚡ جاري شحن كامل الرصيد ({balance} ليرة).')
-  elif text == '💳 شحن رصيد في البوت':
-    bot.send_message(
-        user_id, 'اختر طريقة الدفع المناسبة:', reply_markup=deposit_methods_menu()
-    )
-  elif text == '📱 شام كاش (الجديدة)':
-    sham_code = get_setting('sham_cash')
-    user_states[user_id] = 'awaiting_deposit_tx'
-    bot.send_message(
-        user_id,
-        f'📱 **شام كاش (الرسمية للوكالة)**\nالعنوان/الكود المعتمد للتحويل:'
-        f' `{sham_code}`\n\nأرسل الآن **رقم العملية** بعد إتمام التحويل:',
-        parse_mode='Markdown',
-    )
-  elif text == '📱 سيريتل كاش':
-    syriatel_code = get_se
+  elif text in ['💳 شحن رصيد من الحساب', '💸 سحب رصيد من ا
