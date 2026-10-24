@@ -36,7 +36,7 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد حالياً')")
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير محدد حالياً')")
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', '📜 شروط وأحكام وكالة iChancy:\n1. تطبق عمولة مخصصة على عمليات سحب الأرباح بحسب الشروط المقررة.\n2. لا توجد أي عمولة على عمليات الشحن.\n3. الحد الأدنى للسحب هو 500 ليرة.\n4. فتح عجلة الفرصة يتطلب شحن بقيمة 750 ليرة جديدة خلال اليوم، وتمنح لفة واحدة يومياً.\n5. كلمة المرور للحساب يجب أن لا تقل عن 6 خانات.')")
+    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة iChancy:\n1. تطبق عمولة مخصصة على عمليات سحب الأرباح.\n2. لا توجد أي عمولة على عمليات الشحن.\n3. الحد الأدنى للسحب هو 500 ليرة.\n4. فتح عجلة الفرصة يتطلب شحن 750 ليرة جديدة يومياً.\n5. كلمة المرور يجب ألا تقل عن 6 خانات.')")
     conn.commit()
     conn.close()
 
@@ -200,41 +200,41 @@ def handle_callbacks(call):
     if call.data == "spin_wheel":
         daily_dep, has_spun = get_user_daily_data(user_id)
         if has_spun and not is_admin:
-            bot.answer_callback_query(call.id, text="⚠️ لقد استخدمت فرصة اليوم! انتظر لغدٍ بعد الشحن.", show_alert=True)
+            bot.answer_callback_query(call.id, text="⚠️ لقد استخدمت فرصة اليوم!", show_alert=True)
             return
         if daily_dep < WHEEL_DAILY_LIMIT and not is_admin:
-            bot.answer_callback_query(call.id, text="⚠️ لم تحقق شرط الشحن اليومي (750 ليرة) بعد!", show_alert=True)
+            bot.answer_callback_query(call.id, text="⚠️ لم تحقق شرط الشحن اليومي بعد!", show_alert=True)
             return
         set_user_spun_today(user_id)
         prizes = [
-            ("❌ حظاً أفر في المرة القادمة، جرب مجدداً غداً!", 50),
-            ("🔄 مبروك! حصلت على لفة مجانية جديدة!", 30),
+            ("❌ حظاً أفر في المرة القادمة!", 50),
+            ("🔄 مبروك! لفة مجانية جديدة!", 30),
             ("💵 مبروك! ربحت 50 ليرة جديدة!", 20)
         ]
         prize_pool = [p[0] for p in prizes for _ in range(p[1])]
         selected_prize = random.choice(prize_pool)
-        bot.answer_callback_query(call.id, text="🔄 جاري تدوير العجلة...")
-        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="🌀 العجلة تدور الآن...\n\n🎰 [ 🎡 🎡 🎡 ]")
-        bot.send_message(user_id, f"🎯 نتيجة عجلة الفرصة اليومية:\n\n{selected_prize}\n\nتواصل مع الدعم لتثبيت الجائزة إن وجدت!", reply_markup=back_menu())
+        bot.answer_callback_query(call.id, text="🔄 جاري التدوير...")
+        bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id, text="🌀 العجلة تدور الآن...")
+        bot.send_message(user_id, f"🎯 النتيجة:\n\n{selected_prize}", reply_markup=back_menu())
 
     elif call.data.startswith("approve_"):
         data_parts = call.data.split("_")
         target_user = int(data_parts[1])
         req_type = data_parts[2]
-        bot.answer_callback_query(call.id, text="✅ تمت الموافقة بنجاح.")
+        bot.answer_callback_query(call.id, text="✅ تمت الموافقة.")
         if req_type == "dep":
             add_user_deposit(target_user, 750)
-            bot.send_message(target_user, "✅ مبروك! تم الموافقة على طلب الشحن وتحديث رصيدك وتفعيل عجلة الفرصة لليوم.")
+            bot.send_message(target_user, "✅ تم الموافقة على طلب الشحن وتحديث رصيدك.")
         else:
-            bot.send_message(target_user, "✅ مبروك! تم الموافقة على طلب السحب وإرسال المبلغ بنجاح.")
-        bot.edit_message_text(f"{call.message.text}\n\n🟢 الحالة: تم القبول والتنفيذ", chat_id=ADMIN_ID, message_id=call.message.message_id)
+            bot.send_message(target_user, "✅ تم الموافقة على طلب السحب وإرسال المبلغ.")
+        bot.edit_message_text(f"{call.message.text}\n\n🟢 الحالة: تم القبول", chat_id=ADMIN_ID, message_id=call.message.message_id)
 
     elif call.data.startswith("reject_"):
         data_parts = call.data.split("_")
         target_user = int(data_parts[1])
         bot.answer_callback_query(call.id, text="❌ أرسل سبب الرفض.")
         admin_rejection_states[ADMIN_ID] = {'target_user': target_user, 'msg_id': call.message.message_id, 'orig_text': call.message.text}
-        bot.send_message(ADMIN_ID, f"أرسل الآن سبب الرفض للمستخدم {target_user}:")
+        bot.send_message(ADMIN_ID, f"أرسل سبب الرفض للمستخدم {target_user}:")
 
 @bot.message_handler(commands=['start', 'admin'])
 def send_welcome(message):
@@ -243,13 +243,12 @@ def send_welcome(message):
     user_states[user_id] = None
     is_admin = (user_id == ADMIN_ID)
     if get_setting('maintenance') == 'on' and not is_admin:
-        bot.send_message(user_id, "⚠️ البوت حالياً في وضع الصيانة للتحديث.\nيرجى المحاولة لاحقاً!")
+        bot.send_message(user_id, "⚠️ البوت في وضع الصيانة.")
         return
     if is_admin:
-        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!\nحسابك مفعّل كآدمن بالكامل.", reply_markup=main_menu(True))
+        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!", reply_markup=main_menu(True))
         return
-    welcome_text = "مرحباً بك في بوت إدارة وكالة iChancy الرسمية! 🎰\n\nيرجى اختيار إحدى الخدمات من القائمة أدناه:"
-    bot.send_message(user_id, welcome_text, reply_markup=main_menu(False))
+    bot.send_message(user_id, "مرحباً بك في بوت وكالة iChancy الرسمية!", reply_markup=main_menu(False))
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_messages(message):
@@ -261,13 +260,13 @@ def handle_messages(message):
         info = admin_rejection_states.pop(ADMIN_ID)
         target_user = info['target_user']
         reason = text
-        bot.send_message(target_user, f"❌ عذراً، تم رفض طلبك من قبل الإدارة.\n\n📌 السبب: {reason}")
-        bot.edit_message_text(f"{info['orig_text']}\n\n🔴 الحالة: تم الرفض\n📝 السبب: {reason}", chat_id=ADMIN_ID, message_id=info['msg_id'])
-        bot.send_message(ADMIN_ID, "✅ تم إرسال سبب الرفض للمستخدم بنجاح.", reply_markup=admin_panel_menu())
+        bot.send_message(target_user, f"❌ عذراً، تم رفض طلبك.\nالسبب: {reason}")
+        bot.edit_message_text(f"{info['orig_text']}\n\n🔴 الحالة: مرفوض\nالسبب: {reason}", chat_id=ADMIN_ID, message_id=info['msg_id'])
+        bot.send_message(ADMIN_ID, "✅ تم الإرسال بنجاح.", reply_markup=admin_panel_menu())
         return
 
     if get_setting('maintenance') == 'on' and not is_admin:
-        bot.send_message(user_id, "⚠️ البوت مغلق مؤقتاً للصيانة. سنعود قريباً!")
+        bot.send_message(user_id, "⚠️ البوت مغلق للصيانة.")
         return
 
     main_buttons = ["👤 إنشاء حساب", "💳 شحن الرصيد", "💸 سحب الرصيد", "🎰 عجلة الفرصة", "🎁 قسم الهدايا", "👥 نظام الإحالات", "📊 حسابي والمعلومات", "📜 شروط الاستخدام", "🎧 خدمة الدعم", "🗑️ طلب حذف الحساب", "⚙️ لوحة تحكم الآدمن", "🔙 رجوع للقائمة الرئيسية", "📱 شحن شام كاش", "📱 شحن سيريتل كاش"]
@@ -278,16 +277,16 @@ def handle_messages(message):
 
     if state == 'awaiting_username':
         if check_username_exists(text):
-            bot.send_message(user_id, "⚠️ اسم المستخدم هذا موجود مسبقاً!\nيرجى إرسال اسم مستخدم (Username) آخر:", reply_markup=back_menu())
+            bot.send_message(user_id, "⚠️ اسم المستخدم مستخدم مسبقاً!", reply_markup=back_menu())
             return
         user_registration_temp[user_id] = {'username': text}
         user_states[user_id] = 'awaiting_password'
-        bot.send_message(user_id, "🔐 الآن أرسل كلمة المرور المطلوبة لحسابك (يجب ألا تقل عن 6 خانات):", reply_markup=back_menu())
+        bot.send_message(user_id, "🔐 أرسل كلمة المرور (6 خانات على الأقل):", reply_markup=back_menu())
         return
 
     if state == 'awaiting_password':
         if len(text) < 6:
-            bot.send_message(user_id, "⚠️ كلمة المرور قصيرة جداً!\nيرجى كتابة كلمة مرور تتكون من 6 خانات أو أكثر:")
+            bot.send_message(user_id, "⚠️ كلمة المرور قصيرة جداً!")
             return
         username = user_registration_temp.get(user_id, {}).get('username', 'غير محدد')
         password = text
@@ -295,16 +294,16 @@ def handle_messages(message):
         user_registration_temp.pop(user_id, None)
         save_player_account(user_id, username, password)
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🌐 الدخول الفوري إلى iChancy", url=ICHANCY_URL))
-        success_msg = f"✅ تم إنشاء حسابك بنجاح تام! 🎉\n\n• اسم المستخدم: {username}\n• كلمة المرور: {password}\n• كود الوكالة المرتبط: {AGENT_CODE}\n\nيمكنك الآن الضغط على الزر أدناه ودخول موقع iChancy بحسابك الجديد مباشرة:"
+        markup.add(InlineKeyboardButton("🌐 الدخول إلى iChancy", url=ICHANCY_URL))
+        success_msg = f"✅ تم إنشاء حسابك بنجاح!\n\n• اليوزر: {username}\n• الباسورد: {password}\n• الوكالة: {AGENT_CODE}"
         bot.send_message(user_id, success_msg, reply_markup=markup)
-        bot.send_message(ADMIN_ID, f"👤 تم تسجيل حساب جديد عبر الكاشيرة ({AGENT_CODE}):\n• اللاعب: {message.from_user.first_name}\n• اليوزر: {username}\n• الباسورد: {password}\n• ID: {user_id}")
+        bot.send_message(ADMIN_ID, f"👤 حساب جديد عبر الكاشيرة ({AGENT_CODE}):\n• اليوزر: {username}\n• الباسورد: {password}\n• ID: {user_id}")
         return
 
     if state == 'awaiting_dep_tx_id':
         deposit_temp[user_id]['tx_id'] = text
         user_states[user_id] = 'awaiting_dep_amount'
-        bot.send_message(user_id, "💵 ممتاز! الآن أرسل قيمة المبلغ المحول بالليرة:", reply_markup=back_menu())
+        bot.send_message(user_id, "💵 الآن أرسل قيمة المبلغ المحول:", reply_markup=back_menu())
         return
 
     if state == 'awaiting_dep_amount':
@@ -314,18 +313,17 @@ def handle_messages(message):
         user_states[user_id] = None
         deposit_temp.pop(user_id, None)
         
-        bot.send_message(user_id, "⏳ تم استلام طلب الشحن بنجاح وهو قيد المراجعة لدى الإدارة.", reply_markup=main_menu(is_admin))
+        bot.send_message(user_id, "⏳ الطلب قيد المراجعة.", reply_markup=main_menu(is_admin))
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("✅ قبول الشحن", callback_data=f"approve_{user_id}_dep"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_dep"))
-        
-        admin_msg = f"📥 طلب شحن جديد ({method}):\n• المستخدم: {message.from_user.first_name} ({user_id})\n• رقم العملية: {tx_id}\n• المبلغ: {amount} ليرة"
+        markup.add(InlineKeyboardButton("✅ قبول", callback_data=f"approve_{user_id}_dep"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_dep"))
+        admin_msg = f"📥 طلب شحن ({method}):\n• المستخدم: {message.from_user.first_name} ({user_id})\n• رقم العملية: {tx_id}\n• المبلغ: {amount}"
         bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup)
         return
 
     if state == 'withdraw_req':
-        bot.send_message(user_id, "⏳ تم استلام طلب السحب بنجاح وهو قيد المراجعة لدى الإدارة.", reply_markup=main_menu(is_admin))
+        bot.send_message(user_id, "⏳ طلب السحب قيد المراجعة.", reply_markup=main_menu(is_admin))
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("✅ قبول السحب", callback_data=f"approve_{user_id}_with"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_with"))
+        markup.add(InlineKeyboardButton("✅ قبول", callback_data=f"approve_{user_id}_with"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_with"))
         bot.send_message(ADMIN_ID, f"💸 طلب سحب جديد:\n• المستخدم: {message.from_user.first_name} ({user_id})\n• التفاصيل:\n{text}", reply_markup=markup)
         user_states[user_id] = None
         return
@@ -342,19 +340,19 @@ def handle_messages(message):
                 count += 1
             except:
                 pass
-        bot.send_message(user_id, f"✅ تم إرسال الإذاعة بنجاح إلى {count} عضو.", reply_markup=admin_panel_menu())
+        bot.send_message(user_id, f"✅ تم الإرسال إلى {count} عضو.", reply_markup=admin_panel_menu())
         user_states[user_id] = None
         return
 
     if state == 'awaiting_sham' and is_admin:
         set_setting('sham_cash', text)
-        bot.send_message(user_id, f"✅ تم تحديث كود الشام كاش إلى:\n{text}", reply_markup=admin_panel_menu())
+        bot.send_message(user_id, f"✅ تم تحديث شام كاش:\n{text}", reply_markup=admin_panel_menu())
         user_states[user_id] = None
         return
 
     if state == 'awaiting_syriatel' and is_admin:
         set_setting('syriatel_cash', text)
-        bot.send_message(user_id, f"✅ تم تحديث كود سيريتل كاش إلى:\n{text}", reply_markup=admin_panel_menu())
+        bot.send_message(user_id, f"✅ تم تحديث سيريتل كاش:\n{text}", reply_markup=admin_panel_menu())
         user_states[user_id] = None
         return
 
@@ -363,27 +361,27 @@ def handle_messages(message):
         return
     if "تشغيل الصيانة" in text and is_admin:
         set_setting('maintenance', 'on')
-        bot.send_message(user_id, "🛑 تم تفعيل وضع الصيانة بنجاح.", reply_markup=admin_panel_menu())
+        bot.send_message(user_id, "🛑 تم تفعيل الصيانة.", reply_markup=admin_panel_menu())
         return
     if "إيقاف الصيانة" in text and is_admin:
         set_setting('maintenance', 'off')
-        bot.send_message(user_id, "🟢 تم إيقاف الصيانة وعمل البوت طبيعياً.", reply_markup=admin_panel_menu())
+        bot.send_message(user_id, "🟢 تم إيقاف الصيانة.", reply_markup=admin_panel_menu())
         return
     if text == "📢 إرسال إذاعة للجميع" and is_admin:
         user_states[user_id] = 'awaiting_broadcast'
-        bot.send_message(user_id, "أرسل النص أو الصورة مع التعليق لإذاعتها للجميع الآن:")
+        bot.send_message(user_id, "أرسل النص أو الصورة للإذاعة:")
         return
     if text == "📱 تغيير كود الشام كاش" and is_admin:
         user_states[user_id] = 'awaiting_sham'
-        bot.send_message(user_id, f"الكود الحالي لشام كاش: {get_setting('sham_cash')}\n\nأرسل الكود الجديد:")
+        bot.send_message(user_id, "أرسل كود شام كاش الجديد:")
         return
     if text == "📱 تغيير كود سيريتل كاش" and is_admin:
         user_states[user_id] = 'awaiting_syriatel'
-        bot.send_message(user_id, f"الكود الحالي لسيريتل كاش: {get_setting('syriatel_cash')}\n\nأرسل الكود الجديد:")
+        bot.send_message(user_id, "أرسل كود سيريتل كاش الجديد:")
         return
     if text == "👥 عدد الأعضاء المسجلين" and is_admin:
         total = len(get_all_users())
-        bot.send_message(user_id, f"📊 إجمالي عدد المشتركين: {total} عضو")
+        bot.send_message(user_id, f"📊 إجمالي الأعضاء: {total}")
         return
 
     if text == "🔙 رجوع للقائمة الرئيسية":
@@ -393,29 +391,50 @@ def handle_messages(message):
         bot.send_message(user_id, "تم العودة للقائمة الرئيسية:", reply_markup=main_menu(is_admin))
     elif text == "👤 إنشاء حساب":
         user_states[user_id] = 'awaiting_username'
-        bot.send_message(user_id, "👤 لإنشاء حساب جديد، يرجى إرسال اسم المستخدم (Username) المطلوب:", reply_markup=back_menu())
+        bot.send_message(user_id, "👤 أرسل اسم المستخدم (Username):", reply_markup=back_menu())
     elif text == "💳 شحن الرصيد":
-        bot.send_message(user_id, "💳 اختر طريقة الشحن المناسبة لك:", reply_markup=deposit_methods_menu())
+        bot.send_message(user_id, "💳 اختر طريقة الشحن:", reply_markup=deposit_methods_menu())
     elif text == "📱 شحن شام كاش":
         deposit_temp[user_id] = {'method': 'شام كاش'}
         user_states[user_id] = 'awaiting_dep_tx_id'
         sham = get_setting('sham_cash')
-        bot.send_message(user_id, f"📱 **شحن عبر شام كاش**\n\nكود الحساب: `{sham}`\n\nمن فضلك قم بالتحويل ثم أرسل **رقم العملية** هنا:", parse_mode="Markdown", reply_markup=back_menu())
+        bot.send_message(user_id, f"📱 **شام كاش**\nالكود: `{sham}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
     elif text == "📱 شحن سيريتل كاش":
         deposit_temp[user_id] = {'method': 'سيريتل كاش'}
         user_states[user_id] = 'awaiting_dep_tx_id'
         syriatel = get_setting('syriatel_cash')
-        bot.send_message(user_id, f"📱 **شحن عبر سيريتل كاش**\n\nكود الحساب: `{syriatel}`\n\nمن فضلك قم بالتحويل ثم أرسل **رقم العملية** هنا:", parse_mode="Markdown", reply_markup=back_menu())
+        bot.send_message(user_id, f"📱 **سيريتل كاش**\nالكود: `{syriatel}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
     elif text == "💸 سحب الرصيد":
         user_states[user_id] = 'withdraw_req'
-        msg = f"⚠️ شروط سحب الأرباح:\n• تطبق عمولة مخصصة على السحب.\n• الحد الأدنى للسحب هو {MIN_WITHDRAWAL} ليرة.\n\nأرسل اسم حسابك، المبلغ المراد سحبه، ورقم الكاش الخاص بك:"
+        msg = f"⚠️ شروط السحب:\n• تطبق عمولة السحب المخصصة.\n• الحد الأدنى: {MIN_WITHDRAWAL} ليرة.\n\nأرسل تفاصيل السحب:"
         bot.send_message(user_id, msg, reply_markup=back_menu())
     elif text == "🎰 عجلة الفرصة":
         daily_dep, has_spun = get_user_daily_data(user_id)
         if has_spun and not is_admin:
-            bot.send_message(user_id, "🛑 لقد استخدمت فرصة اليوم بالفعل!\nيرجى العودة غداً بعد الشحن للحصول على فرصة جديدة.", reply_markup=back_menu())
+            bot.send_message(user_id, "🛑 لقد استخدمت فرصة اليوم!", reply_markup=back_menu())
         elif daily_dep < WHEEL_DAILY_LIMIT and not is_admin:
-            msg = f"🔒 عجلة الفرصة مقفلة اليوم!\n\n• الشرط: شحن رصيد بقيمة 750 ليرة جديدة (75,000 قديمة) على الأقل خلال اليوم للحصول على دورة واحدة.\n• مجموع شحناتك اليوم: {daily_dep} ليرة.\n\nقم بشحن رصيدك عبر زر (شحن الرصيد) لتفتح معك العجلة فوراً!"
-            bot.send_message(user_id, msg, reply_markup=back_menu())
+            bot.send_message(user_id, f"🔒 عجلة الفرصة مقفلة (الشرط: 750 ليرة شحن يومي).", reply_markup=back_menu())
         else:
-            wheel_text = "🎰 أهلاً بك في عجلة الفرصة اليومية! 🎡\n\nلك فرصة واحدة اليوم! ا
+            bot.send_message(user_id, "🎰 اضغط للتدوير:", reply_markup=wheel_inline_keyboard())
+    elif text == "🎁 قسم الهدايا":
+        bot.send_message(user_id, "🎁 قسم الهدايا والعروض.", reply_markup=back_menu())
+    elif text == "👥 نظام الإحالات":
+        bot.send_message(user_id, "👥 شارك رابط البوت.", reply_markup=back_menu())
+    elif text == "📊 حسابي والمعلومات":
+        daily_dep, has_spun = get_user_daily_data(user_id)
+        spin_st = "متاحة 🟢" if not has_spun or is_admin else "مستخدمة 🔴"
+        info = f"👤 معلوماتك:\n• الاسم: {message.from_user.first_name}\n• الشحن اليومي: {daily_dep}\n• العجلة: {spin_st}"
+        bot.send_message(user_id, info, reply_markup=back_menu())
+    elif text == "📜 شروط الاستخدام":
+        terms = get_setting('custom_terms')
+        bot.send_message(user_id, terms, reply_markup=back_menu())
+    elif text == "🎧 خدمة الدعم":
+        bot.send_message(user_id, "🎧 أرسل استفسارك للدعم.", reply_markup=back_menu())
+    elif text == "🗑️ طلب حذف الحساب":
+        bot.send_message(user_id, "🗑️ أرسل اسم حسابك للحذف.", reply_markup=back_menu())
+    else:
+        bot.send_message(user_id, "اختر من القائمة:", reply_markup=main_menu(is_admin))
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    
