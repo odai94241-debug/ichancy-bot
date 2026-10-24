@@ -20,12 +20,10 @@ ICHANCY_URL = 'https://www.ichancy.com'
 AGENT_CODE = '2826132-odai1@agents.nps'
 RENDER_URL = 'https://ichancy-bot-uagc.onrender.com'
 
-# الحدود المالية بالعملة السورية الجديدة
+# حدود العملة الجديدة
 MIN_DEPOSIT = 250
 MIN_WITHDRAWAL = 500
-WHEEL_DEPOSIT_REQUIRED = (
-    750  # الحد اليومي لشحن العجلة بالعملة الجديدة (مثلاً 750 ليرة)
-)
+WHEEL_DEPOSIT_REQUIRED = 750
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -57,18 +55,16 @@ def init_db():
   )
   cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
   cursor.execute(
-      "INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد حالياً')"
-  )
+      "INSERT OR IGNORE INTO settings VALUES ('sham_cash', '0939611195')"
+  )  # رقم تجريبي للشام كاش قابل للتغيير من لوحة الآدمن
   cursor.execute(
-      "INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير"
-      " محدد حالياً')"
-  )
+      "INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', '0988000000')"
+  )  # رقم سيريتل كاش قابل للتغيير
   cursor.execute(
       "INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة"
-      ' iChancy (العملة الجديدة):\n1. منع الحسابات المتعددة.\n2. الحد الأدنى'
-      ' للشحن: 250 ليرة.\n3. الحد الأدنى للسحب: 500 ليرة.\n4. نسب السحب'
-      ' المتناقصة: حتى 500 ألف 10%، ومن 500 ألف إلى 1.5 مليون 15%، وفوق 1.5 مليون'
-      " 20%.')"
+      ' iChancy:\n1. منع الحسابات المتعددة.\n2. الحد الأدنى للشحن: 250 ليرة'
+      ' جديدة.\n3. الحد الأدنى للسحب: 500 ليرة جديدة.\n4. نسب السحب المتناقصة:'
+      " 10% إلى 20%.')"
   )
   conn.commit()
   conn.close()
@@ -186,7 +182,6 @@ def get_all_users():
   return [r[0] for r in rows]
 
 
-# حساب عمولة السحب المتناقصة بالعملة الجديدة (مثال: مليون ومية ألف تصبح 1,100,000 جديدة أو حسب مقياسك)
 def calculate_withdrawal_commission(amount):
   if amount <= 500000:
     rate = 0.10
@@ -207,16 +202,15 @@ def ichancy_api_create_account(username, password):
         timeout=15,
     )
     if response.status_code == 200:
-      return True, 'تم إنشاء الحساب في الكاشيرة بنجاح'
+      return True, 'تم إنشاء الحساب في كاشيرة الوكالة بنجاح'
   except Exception:
     pass
-  return True, 'تم تسجيل الحساب وإرساله للكاشيرة بنجاح'
+  return True, 'تم تسجيل الحساب وإرساله لكاشيرة iChancy أوتوماتيكياً'
 
 
-# واجهة الويب الخاصة بعجلة الفرصة (Web App)
 @app.route('/wheel')
 def wheel_page():
-  return f"""
+  return """
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
@@ -224,65 +218,48 @@ def wheel_page():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>عجلة الفرصة - iChancy</title>
         <style>
-            body {{ background: #0f172a; color: white; font-family: Tahoma, sans-serif; text-align: center; margin: 0; padding: 20px; }}
-            h1 {{ color: #f59e0b; margin-top: 10px; }}
-            .wheel-container {{ position: relative; width: 320px; height: 320px; margin: 20px auto; }}
-            canvas {{ border-radius: 50%; box-shadow: 0 0 25px rgba(245, 158, 11, 0.6); background: #1e293b; }}
-            .pin {{ position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 30px solid #ef4444; z-index: 10; }}
-            button {{ margin-top: 25px; padding: 14px 40px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white; font-size: 20px; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4); }}
-            button:active {{ transform: scale(0.95); }}
-            #result {{ margin-top: 20px; font-size: 18px; font-weight: bold; color: #10b981; }}
+            body { background: #0f172a; color: white; font-family: Tahoma, sans-serif; text-align: center; margin: 0; padding: 20px; }
+            h1 { color: #f59e0b; margin-top: 10px; }
+            .wheel-container { position: relative; width: 320px; height: 320px; margin: 20px auto; }
+            canvas { border-radius: 50%; box-shadow: 0 0 25px rgba(245, 158, 11, 0.6); background: #1e293b; }
+            .pin { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 30px solid #ef4444; z-index: 10; }
+            button { margin-top: 25px; padding: 14px 40px; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white; font-size: 20px; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4); }
+            #result { margin-top: 20px; font-size: 18px; font-weight: bold; color: #10b981; }
         </style>
     </head>
     <body>
-        <h1>🎡 عجلة الفرصة (العملة الجديدة)</h1>
-        <p>اربح جوائز نقدية فورية!</p>
+        <h1>🎡 عجلة الفرصة الكبرى</h1>
+        <p>اربح جوائز نقدية فورية بالليرة الجديدة!</p>
         <div class="wheel-container">
             <div class="pin"></div>
             <canvas id="wheel" width="320" height="320"></canvas>
         </div>
         <button onclick="spin()">دور العجلة الآن</button>
         <div id="result"></div>
-
         <script>
             const canvas = document.getElementById('wheel');
             const ctx = canvas.getContext('2d');
             const prizes = ['50 ليرة', '100 ليرة', '250 ليرة', '500 ليرة', '1000 ليرة', 'حظاً أوفر'];
             const colors = ['#f59e0b', '#ef4444', '#3b82f6', '#10b981', '#8b5cf6', '#64748b'];
-            const numSegments = prizes.length;
-            const arcSize = (2 * Math.PI) / numSegments;
+            const arcSize = (2 * Math.PI) / prizes.length;
             let spinning = false;
-
-            function drawWheel() {{
-                for (let i = 0; i < numSegments; i++) {{
-                    ctx.beginPath();
-                    ctx.fillStyle = colors[i];
-                    ctx.moveTo(160, 160);
-                    ctx.arc(160, 160, 150, i * arcSize, (i + 1) * arcSize);
-                    ctx.lineTo(160, 160);
-                    ctx.fill();
-                    ctx.save();
-                    ctx.translate(160, 160);
-                    ctx.rotate(i * arcSize + arcSize / 2);
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = 'bold 13px Tahoma';
-                    ctx.fillText(prizes[i], 70, 5);
-                    ctx.restore();
-                }}
-            }}
+            function drawWheel() {
+                for (let i = 0; i < prizes.length; i++) {
+                    ctx.beginPath(); ctx.fillStyle = colors[i]; ctx.moveTo(160, 160);
+                    ctx.arc(160, 160, 150, i * arcSize, (i + 1) * arcSize); ctx.lineTo(160, 160); ctx.fill();
+                    ctx.save(); ctx.translate(160, 160); ctx.rotate(i * arcSize + arcSize / 2);
+                    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Tahoma'; ctx.fillText(prizes[i], 70, 5); ctx.restore();
+                }
+            }
             drawWheel();
-
-            function spin() {{
+            function spin() {
                 if (spinning) return;
                 spinning = true;
                 const randomAngle = Math.floor(Math.random() * 360) + 1800;
                 canvas.style.transition = 'transform 4s cubic-bezier(0.15, 0.85, 0.12, 0.95)';
                 canvas.style.transform = `rotate(${randomAngle}deg)`;
-                
-                setTimeout(() => {{
-                    document.getElementById('result').innerText = '🎉 مبروك! تمت إضافة جائزتك لرصيدك.';
-                }}, 4000);
-            }}
+                setTimeout(() => { document.getElementById('result').innerText = '🎉 مبروك! تمت إضافة جائزتك لرصيدك.'; }, 4000);
+            }
         </script>
     </body>
     </html>
@@ -355,7 +332,7 @@ def admin_panel_menu():
 
 @app.route('/', methods=['GET'])
 def index():
-  return 'iChancy Fully Automated Bot (New Currency) is Online!', 200
+  return 'iChancy Fully Automated Bot is Online!', 200
 
 
 @app.route('/', methods=['POST'])
@@ -403,10 +380,7 @@ def handle_callbacks(call):
     parts = call.data.split('_')
     target_user = int(parts[1])
     bot.answer_callback_query(call.id, text='✅ تمت الموافقة بنجاح.')
-    bot.send_message(
-        target_user,
-        '✅ تم التحقق من معاملتك المالية بالعملة الجديدة وإضافتها بنجاح!',
-    )
+    bot.send_message(target_user, '✅ تم اعتماد المعاملة المالية بنجاح!')
     bot.edit_message_text(
         f'{call.message.text}\n\n🟢 **الحالة:** مؤكد ومعالج',
         chat_id=ADMIN_ID,
@@ -454,10 +428,15 @@ def handle_all_messages(message):
     )
     bot.send_message(
         user_id,
-        f'✅ **تم إنشاء الحساب بنجاح!** 🎉\n\n• اسم المستخدم: `{username}`\n• كلمة'
-        ' المرور: `{password}`',
+        f'✅ **تم إنشاء الحساب بنجاح وربطه بكاشيرة الوكالة!** 🎉\n\n• اسم'
+        f' المستخدم: `{username}`\n• كلمة المرور: `{password}`',
         reply_markup=markup,
         parse_mode='Markdown',
+    )
+    bot.send_message(
+        ADMIN_ID,
+        f'👤 حساب جديد تم إنشاؤه تحت كود وكالتك:\n• اليوزر: {username}\n• الباسورد:'
+        f' {password}\n• الآيدي: {user_id}',
     )
     return
 
@@ -481,25 +460,22 @@ def handle_all_messages(message):
     if amount < MIN_DEPOSIT and not is_admin:
       bot.send_message(
           user_id,
-          f'⚠️ عذراً، الحد الأدنى لعملية الشحن هو **{MIN_DEPOSIT} ليرة جديدة**'
-          ' فقط!',
+          f'⚠️ عذراً، الحد الأدنى للشحن هو **{MIN_DEPOSIT} ليرة جديدة**!',
           parse_mode='Markdown',
       )
       return
 
     user_states[user_id] = None
     temp_data.pop(user_id, None)
-
     add_user_deposit(user_id, amount)
-    bonus = amount * 0.10  # بونص 10%
+    bonus = amount * 0.10
     total = amount + bonus
     update_user_balance(user_id, total)
 
     bot.send_message(
         user_id,
-        f'✅ **تم الشحن بنجاح وتفعيل عجلة الفرصة!**\n• المبلغ الأساسي:'
-        f' {amount} ليرة\n• البونص المضاف: {bonus} ليرة\n• الإجمالي المضاف:'
-        f' {total} ليرة جديدة',
+        f'✅ **تم الشحن بنجاح وتفعيل العجلة!**\n• المبلغ: {amount} ليرة\n•'
+        f' البونص: {bonus} ليرة\n• الإجمالي: {total} ليرة جديدة',
         reply_markup=main_menu(is_admin),
         parse_mode='Markdown',
     )
@@ -515,8 +491,7 @@ def handle_all_messages(message):
     if amount < MIN_WITHDRAWAL and not is_admin:
       bot.send_message(
           user_id,
-          f'⚠️ عذراً، الحد الأدنى لعملية السحب هو **{MIN_WITHDRAWAL} ليرة جديدة**'
-          ' فقط!',
+          f'⚠️ عذراً، الحد الأدنى للسحب هو **{MIN_WITHDRAWAL} ليرة جديدة**!',
           parse_mode='Markdown',
       )
       return
@@ -532,15 +507,14 @@ def handle_all_messages(message):
     )
     bot.send_message(
         ADMIN_ID,
-        f'💸 **طلب سحب جديد (بالعملة الجديدة):**\n• المستخدم: {user_id}\n• المبلغ'
-        f' المطلوب: {amount} ليرة\n• العمولة ({rate}%): الصافي للوصول'
-        f' {net_amount} ليرة جديدة',
+        f'💸 **طلب سحب جديد:**\n• المستخدم: {user_id}\n• المبلغ: {amount}'
+        f' ليرة\n• العمولة ({rate}%): الصافي {net_amount} ليرة جديدة',
         reply_markup=markup,
         parse_mode='Markdown',
     )
     bot.send_message(
         user_id,
-        f'⏳ تم إرسال طلب سحبك بنجاح.\n• الصافي بعد عمولة الوكالة ({rate}%):'
+        f'⏳ تم إرسال طلب سحبك.\n• الصافي بعد عمولة الوكالة ({rate}%):'
         f' **{net_amount} ليرة جديدة**',
         reply_markup=main_menu(is_admin),
         parse_mode='Markdown',
@@ -559,6 +533,29 @@ def handle_all_messages(message):
     user_states[user_id] = None
     return
 
+  if state == 'awaiting_sham_update' and is_admin:
+    set_setting('sham_cash', text)
+    bot.send_message(
+        user_id,
+        f'✅ تم تحديث عنوان شام كاش إلى:\n`{text}`',
+        reply_markup=admin_panel_menu(),
+        parse_mode='Markdown',
+    )
+    user_states[user_id] = None
+    return
+
+  if state == 'awaiting_syriatel_update' and is_admin:
+    set_setting('syriatel_cash', text)
+    bot.send_message(
+        user_id,
+        f'✅ تم تحديث عنوان سيريتل كاش إلى:\n`{text}`',
+        reply_markup=admin_panel_menu(),
+        parse_mode='Markdown',
+    )
+    user_states[user_id] = None
+    return
+
+  # توجيهات الأزرار
   if text == '🔙 رجوع للقائمة الرئيسية':
     user_states[user_id] = None
     bot.send_message(
@@ -570,56 +567,54 @@ def handle_all_messages(message):
     )
   elif text == '👤 إنشاء حساب إيشَانسي':
     if get_player_account(user_id):
-      bot.send_message(user_id, '⚠️ لديك حساب مسجل مسبقاً.')
-    else:
-      user_states[user_id] = 'awaiting_ichancy_reg_username'
-      bot.send_message(user_id, '👤 أرسل اسم المستخدم (Username) الجديد:')
-  elif text == '💳 شحن رصيد في البوت':
-    bot.send_message(
-        user_id, 'اختر طريقة الدفع:', reply_markup=deposit_methods_menu()
-    )
-  elif text in ['📱 سيريتل كاش', '📱 شام كاش (الجديدة)']:
-    user_states[user_id] = 'awaiting_deposit_tx'
-    code = (
-        get_setting('sham_cash')
-        if 'شام' in text
-        else get_setting('syriatel_cash')
-    )
-    bot.send_message(
-        user_id,
-        f'📱 **{text}**\nالكود المعتمد: `{code}`\n\nأرسل **رقم العملية**:',
-        parse_mode='Markdown',
-    )
-  elif text == '💳 سحب رصيد من البوت':
-    user_states[user_id] = 'awaiting_withdraw_amount'
-    bot.send_message(
-        user_id,
-        f'💸 أرسل المبلغ المراد سحبه (الحد الأدنى {MIN_WITHDRAWAL} ليرة):',
-    )
-  elif text == '👥 الإحالات':
-    bot.send_message(
-        user_id,
-        f'👥 رابط الإحالة الخاص بك:\n`https://t.me/{(bot.get_me()).username}?start={user_id}`',
-        parse_mode='Markdown',
-    )
-  elif text == '📜 شروط الاستخدام':
-    bot.send_message(user_id, get_setting('custom_terms'))
-  elif text == '🎡 عجلة الفرصة':
-    _, daily_dep, _, last_spin = get_user_info(user_id)
-    today = str(date.today())
-
-    if last_spin == today and not is_admin:
+      acc = get_player_account(user_id)
       bot.send_message(
           user_id,
-          '⚠️ لقد استخدمت لفتك المجانية لليوم! (مسموح دورة واحدة فقط في اليوم).',
-      )
-      return
-
-    if daily_dep < WHEEL_DEPOSIT_REQUIRED and not is_admin:
-      bot.send_message(
-          user_id,
-          f'🔒 عجلة الفرصة مقفلة!\nيجب شحن مبلغ جديد بقيمة **{WHEEL_DEPOSIT_REQUIRED}'
-          ' ليرة جديدة على الأقل** اليوم لتفعيل اللفة.',
+          f'⚠️ لديك حساب مسجل مسبقاً:\n• اليوزر: `{acc[0]}`\n• الباسورد:'
+          f' `{acc[1]}`',
           parse_mode='Markdown',
       )
-      retur
+    else:
+      user_states[user_id] = 'awaiting_ichancy_reg_username'
+      bot.send_message(
+          user_id, '👤 أرسل اسم المستخدم (Username) الجديد لحساب iChancy:'
+      )
+  elif text == '💳 شحن رصيد من الحساب' or text == '💸 سحب رصيد من الحساب':
+    balance, _, _, _ = get_user_info(user_id)
+    if balance <= 0:
+      bot.send_message(
+          user_id,
+          '⚠️ **عذراً، لا يوجد لديك رصيد في الحساب لإتمام العملية (الرصيد:'
+          ' 0 ليرة جديدة).**',
+          parse_mode='Markdown',
+      )
+    else:
+      bot.send_message(
+          user_id, f'• رصيدك الحالي: {balance} ليرة جديدة.', reply_markup=back_menu()
+      )
+  elif text == '⚡ شحن كامل الرصيد':
+    balance, _, _, _ = get_user_info(user_id)
+    if balance <= 0:
+      bot.send_message(
+          user_id,
+          '⚠️ **عذراً، لا يوجد رصيد كافٍ في حسابك لشحنه بالكامل (الرصيد: 0 ليرة'
+          ' جديدة).**',
+          parse_mode='Markdown',
+      )
+    else:
+      bot.send_message(user_id, f'⚡ جاري شحن كامل الرصيد ({balance} ليرة).')
+  elif text == '💳 شحن رصيد في البوت':
+    bot.send_message(
+        user_id, 'اختر طريقة الدفع المناسبة:', reply_markup=deposit_methods_menu()
+    )
+  elif text == '📱 شام كاش (الجديدة)':
+    sham_code = get_setting('sham_cash')
+    user_states[user_id] = 'awaiting_deposit_tx'
+    bot.send_message(
+        user_id,
+        f'📱 **شام كاش (الرسمية للوكالة)**\nالعنوان/الكود المعتمد للتحويل:'
+        f' `{sham_code}`\n\nأرسل الآن **رقم العملية** بعد إتمام التحويل:',
+        parse_mode='Markdown',
+    )
+  elif text == '📱 سيريتل كاش':
+    syriatel_code = get_se
