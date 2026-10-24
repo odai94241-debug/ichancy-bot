@@ -13,7 +13,7 @@ MIN_WITHDRAWAL = 500
 WHEEL_DAILY_LIMIT = 750
 ICHANCY_URL = "https://www.ichancy.com"
 
-# كود الوكالة السري (مخفي عن جميع اللاعبين)
+# كود الوكالة السري (مخفي عن جميع اللاعبين تماماً)
 AGENT_CODE = "2826132-odai1@agents.nps"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
@@ -451,4 +451,4 @@ def handle_messages(message):
         bot.send_message(user_id, "👤 أرسل **اسم حسابك على iChancy** المراد السحب منه تلقائياً:", reply_markup=back_menu())
     elif text == "💸 استلام عبر شام كاش":
         withdraw_temp[user_id]['method'] = 'شام كاش'
-        user_states[user_id] = 'awai
+        user_states[user_id] 
