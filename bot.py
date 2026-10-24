@@ -16,9 +16,6 @@ ICHANCY_URL = "https://www.ichancy.com"
 # كود الوكالة السري (مخفي تماماً عن اللاعبين)
 AGENT_CODE = "2826132-odai1@agents.nps"
 
-# إعدادات قناة الاشتراك الإجباري (ضع معرف قناتك هنا مثل @YourChannel)
-CHANNEL_USERNAME = "@YourChannel"
-
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
@@ -129,17 +126,6 @@ def get_all_users():
     conn.close()
     return [r[0] for r in rows]
 
-def check_user_subscription(user_id):
-    if user_id == ADMIN_ID:
-        return True
-    try:
-        member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            return True
-    except Exception as e:
-        print(f"Subscription check error: {e}")
-    return False
-
 def ichancy_api_create_account(username, password):
     api_endpoint = "https://api.ichancy.com/v1/create_account"
     payload = {"agent_code": AGENT_CODE, "username": username, "password": password}
@@ -172,12 +158,6 @@ def main_menu(is_admin=False):
     )
     if is_admin:
         markup.add(KeyboardButton("⚙️ لوحة تحكم الآدمن"))
-    return markup
-
-def subscription_keyboard():
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📢 اضغط هنا للانضمام للقناة", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"))
-    markup.add(InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_sub"))
     return markup
 
 def deposit_methods_menu():
@@ -245,15 +225,6 @@ def handle_callbacks(call):
     user_id = call.message.chat.id
     is_admin = (user_id == ADMIN_ID)
 
-    if call.data == "check_sub":
-        if check_user_subscription(user_id):
-            bot.answer_callback_query(call.id, text="✅ تم التحقق من اشتراكك بنجاح!", show_alert=True)
-            bot.delete_message(user_id, call.message.message_id)
-            bot.send_message(user_id, "أهلاً بك مجدداً في بوت وكالة iChancy الرسمية! اختر من القائمة:", reply_markup=main_menu(is_admin))
-        else:
-            bot.answer_callback_query(call.id, text="⚠️ لم تقم بالانضمام للقناة بعد!", show_alert=True)
-        return
-
     if call.data == "spin_wheel":
         daily_dep, has_spun = get_user_daily_data(user_id)
         if has_spun and not is_admin:
@@ -304,11 +275,6 @@ def send_welcome(message):
         bot.send_message(user_id, "⚠️ البوت في وضع الصيانة.")
         return
 
-    if not check_user_subscription(user_id):
-        sub_msg = f"🚀 لاستخدام هذا البوت، يجب عليك أولاً الانضمام إلى قناتنا الرسمية:\n\n{CHANNEL_USERNAME}"
-        bot.send_message(user_id, sub_msg, reply_markup=subscription_keyboard())
-        return
-
     if is_admin:
         bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!", reply_markup=main_menu(True))
         return
@@ -320,18 +286,13 @@ def handle_messages(message):
     text = message.text if message.text else ""
     is_admin = (user_id == ADMIN_ID)
 
-    if not check_user_subscription(user_id):
-        sub_msg = f"🚀 لاستخدام هذا البوت، يجب عليك أولاً الانضمام إلى قناتنا الرسمية:\n\n{CHANNEL_USERNAME}"
-        bot.send_message(user_id, sub_msg, reply_markup=subscription_keyboard())
-        return
-
     if is_admin and ADMIN_ID in admin_rejection_states:
         info = admin_rejection_states.pop(ADMIN_ID)
         target_user = info['target_user']
         reason = text
         bot.send_message(target_user, f"❌ عذراً، تم رفض طلبك.\nالسبب: {reason}")
         bot.edit_message_text(f"{info['orig_text']}\n\n🔴 الحالة: مرفوض\nالسبب: {reason}", chat_id=ADMIN_ID, message_id=info['msg_id'])
-        bot.send_message(ADMIN_ID, "✅ تم الإرسال بنجاح.", reply_markup=admin_panel_menu())
+        bot.send_message(ADMIN_ID, f"✅ تم الإرسال بنجاح.", reply_markup=admin_panel_menu())
         return
 
     if get_setting('maintenance') == 'on' and not is_admin:
