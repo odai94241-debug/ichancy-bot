@@ -33,7 +33,7 @@ def webhook():
 
 @app.route('/')
 def index():
-    return "iChancy Bot is Online and Healthy!", 200
+    return "iChancy Bot is Online!", 200
 
 def main_keyboard():
     markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -96,7 +96,6 @@ def show_account_info(message):
     bal = USER_BALANCES.get(message.from_user.id, 0)
     bot.send_message(message.chat.id, f"معلومات الحساب:\nID: {message.from_user.id}\nالرصيد: {bal} ليرة")
 
-# ضبط الـ Webhook تلقائياً مع سيرفر Render
 RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL')
 if RENDER_URL:
     try:
