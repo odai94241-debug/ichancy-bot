@@ -1,6 +1,7 @@
 import os
 import random
 import sqlite3
+import requests
 from datetime import date
 from flask import Flask, request
 import telebot
@@ -11,6 +12,7 @@ ADMIN_ID = 7753870725
 MIN_WITHDRAWAL = 500
 WHEEL_DAILY_LIMIT = 750
 ICHANCY_URL = "https://www.ichancy.com"
+AGENT_CODE = "2826132-odai1@agents.nps"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -34,7 +36,7 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد حالياً')")
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير محدد حالياً')")
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة iChancy:\n1. الحد الأدنى للسحب هو 500 ليرة.\n2. فتح عجلة الفرصة يتطلب شحن بقيمة 750 ليرة جديدة خلال اليوم، وتمنح لفة واحدة يومياً.\n3. كلمة المرور للحساب يجب أن لا تقل عن 6 خانات.')")
+    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', '📜 شروط وأحكام وكالة iChancy:\n1. تطبق عمولة مخصصة على عمليات سحب الأرباح بحسب الشروط المقررة.\n2. لا توجد أي عمولة على عمليات الشحن.\n3. الحد الأدنى للسحب هو 500 ليرة.\n4. فتح عجلة الفرصة يتطلب شحن بقيمة 750 ليرة جديدة خلال اليوم، وتمنح لفة واحدة يومياً.\n5. كلمة المرور للحساب يجب أن لا تقل عن 6 خانات.')")
     conn.commit()
     conn.close()
 
@@ -140,6 +142,15 @@ def main_menu(is_admin=False):
         markup.add(KeyboardButton("⚙️ لوحة تحكم الآدمن"))
     return markup
 
+def deposit_methods_menu():
+    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add(
+        KeyboardButton("📱 شحن شام كاش"),
+        KeyboardButton("📱 شحن سيريتل كاش"),
+        KeyboardButton("🔙 رجوع للقائمة الرئيسية")
+    )
+    return markup
+
 def back_menu():
     markup = ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
     markup.add(KeyboardButton("🔙 رجوع للقائمة الرئيسية"))
@@ -178,6 +189,7 @@ def webhook():
 
 admin_rejection_states = {}
 user_registration_temp = {}
+deposit_temp = {}
 user_states = {}
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -234,7 +246,7 @@ def send_welcome(message):
         bot.send_message(user_id, "⚠️ البوت حالياً في وضع الصيانة للتحديث.\nيرجى المحاولة لاحقاً!")
         return
     if is_admin:
-        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!\nحسابك مفعّل كآدمن بالكامل وتستطيع قبول ورفض العمليات الآن.", reply_markup=main_menu(True))
+        bot.send_message(user_id, "👑 أهلاً بك يا مدير الوكالة!\nحسابك مفعّل كآدمن بالكامل.", reply_markup=main_menu(True))
         return
     welcome_text = "مرحباً بك في بوت إدارة وكالة iChancy الرسمية! 🎰\n\nيرجى اختيار إحدى الخدمات من القائمة أدناه:"
     bot.send_message(user_id, welcome_text, reply_markup=main_menu(False))
@@ -258,7 +270,7 @@ def handle_messages(message):
         bot.send_message(user_id, "⚠️ البوت مغلق مؤقتاً للصيانة. سنعود قريباً!")
         return
 
-    main_buttons = ["👤 إنشاء حساب", "💳 شحن الرصيد", "💸 سحب الرصيد", "🎰 عجلة الفرصة", "🎁 قسم الهدايا", "👥 نظام الإحالات", "📊 حسابي والمعلومات", "📜 شروط الاستخدام", "🎧 خدمة الدعم", "🗑️ طلب حذف الحساب", "⚙️ لوحة تحكم الآدمن", "🔙 رجوع للقائمة الرئيسية"]
+    main_buttons = ["👤 إنشاء حساب", "💳 شحن الرصيد", "💸 سحب الرصيد", "🎰 عجلة الفرصة", "🎁 قسم الهدايا", "👥 نظام الإحالات", "📊 حسابي والمعلومات", "📜 شروط الاستخدام", "🎧 خدمة الدعم", "🗑️ طلب حذف الحساب", "⚙️ لوحة تحكم الآدمن", "🔙 رجوع للقائمة الرئيسية", "📱 شحن شام كاش", "📱 شحن سيريتل كاش"]
     if text in main_buttons:
         user_states[user_id] = None
 
@@ -284,17 +296,30 @@ def handle_messages(message):
         save_player_account(user_id, username, password)
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🌐 الدخول الفوري إلى iChancy", url=ICHANCY_URL))
-        success_msg = f"✅ تم إنشاء حسابك بنجاح تام! 🎉\n\n• اسم المستخدم: {username}\n• كلمة المرور: {password}\n\nيمكنك الآن الضغط على الزر أدناه ودخول موقع iChancy بحسابك الجديد مباشرة:"
+        success_msg = f"✅ تم إنشاء حسابك بنجاح تام! 🎉\n\n• اسم المستخدم: {username}\n• كلمة المرور: {password}\n• كود الوكالة المرتبط: {AGENT_CODE}\n\nيمكنك الآن الضغط على الزر أدناه ودخول موقع iChancy بحسابك الجديد مباشرة:"
         bot.send_message(user_id, success_msg, reply_markup=markup)
-        bot.send_message(ADMIN_ID, f"👤 تم تسجيل حساب جديد بالبوت:\n• اللاعب: {message.from_user.first_name}\n• اليوزر: {username}\n• الباسورد: {password}\n• ID: {user_id}")
+        bot.send_message(ADMIN_ID, f"👤 تم تسجيل حساب جديد عبر الكاشيرة ({AGENT_CODE}):\n• اللاعب: {message.from_user.first_name}\n• اليوزر: {username}\n• الباسورد: {password}\n• ID: {user_id}")
         return
 
-    if state == 'deposit_req':
+    if state == 'awaiting_dep_tx_id':
+        deposit_temp[user_id]['tx_id'] = text
+        user_states[user_id] = 'awaiting_dep_amount'
+        bot.send_message(user_id, "💵 ممتاز! الآن أرسل قيمة المبلغ المحول بالليرة:", reply_markup=back_menu())
+        return
+
+    if state == 'awaiting_dep_amount':
+        method = deposit_temp.get(user_id, {}).get('method', 'غير محدد')
+        tx_id = deposit_temp.get(user_id, {}).get('tx_id', 'غير محدد')
+        amount = text
+        user_states[user_id] = None
+        deposit_temp.pop(user_id, None)
+        
         bot.send_message(user_id, "⏳ تم استلام طلب الشحن بنجاح وهو قيد المراجعة لدى الإدارة.", reply_markup=main_menu(is_admin))
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("✅ قبول الشحن", callback_data=f"approve_{user_id}_dep"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_dep"))
-        bot.send_message(ADMIN_ID, f"📥 طلب شحن جديد:\n• المستخدم: {message.from_user.first_name} ({user_id})\n• التفاصيل:\n{text}", reply_markup=markup)
-        user_states[user_id] = None
+        
+        admin_msg = f"📥 طلب شحن جديد ({method}):\n• المستخدم: {message.from_user.first_name} ({user_id})\n• رقم العملية: {tx_id}\n• المبلغ: {amount} ليرة"
+        bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup)
         return
 
     if state == 'withdraw_req':
@@ -364,19 +389,26 @@ def handle_messages(message):
     if text == "🔙 رجوع للقائمة الرئيسية":
         user_states[user_id] = None
         user_registration_temp.pop(user_id, None)
+        deposit_temp.pop(user_id, None)
         bot.send_message(user_id, "تم العودة للقائمة الرئيسية:", reply_markup=main_menu(is_admin))
     elif text == "👤 إنشاء حساب":
         user_states[user_id] = 'awaiting_username'
         bot.send_message(user_id, "👤 لإنشاء حساب جديد، يرجى إرسال اسم المستخدم (Username) المطلوب:", reply_markup=back_menu())
     elif text == "💳 شحن الرصيد":
-        user_states[user_id] = 'deposit_req'
+        bot.send_message(user_id, "💳 اختر طريقة الشحن المناسبة لك:", reply_markup=deposit_methods_menu())
+    elif text == "📱 شحن شام كاش":
+        deposit_temp[user_id] = {'method': 'شام كاش'}
+        user_states[user_id] = 'awaiting_dep_tx_id'
         sham = get_setting('sham_cash')
+        bot.send_message(user_id, f"📱 **شحن عبر شام كاش**\n\nكود الحساب: `{sham}`\n\nمن فضلك قم بالتحويل ثم أرسل **رقم العملية** هنا:", parse_mode="Markdown", reply_markup=back_menu())
+    elif text == "📱 شحن سيريتل كاش":
+        deposit_temp[user_id] = {'method': 'سيريتل كاش'}
+        user_states[user_id] = 'awaiting_dep_tx_id'
         syriatel = get_setting('syriatel_cash')
-        msg = f"💳 طرق شحن الرصيد المتاحة:\n\n• الشام كاش: {sham}\n• سيريتل كاش: {syriatel}\n\nأرسل اسم حسابك، المبلغ المحول، ورقم الإشعار هنا للمراجعة:"
-        bot.send_message(user_id, msg, reply_markup=back_menu())
+        bot.send_message(user_id, f"📱 **شحن عبر سيريتل كاش**\n\nكود الحساب: `{syriatel}`\n\nمن فضلك قم بالتحويل ثم أرسل **رقم العملية** هنا:", parse_mode="Markdown", reply_markup=back_menu())
     elif text == "💸 سحب الرصيد":
         user_states[user_id] = 'withdraw_req'
-        msg = f"⚠️ شروط سحب الأرباح:\n• الحد الأدنى للسحب هو {MIN_WITHDRAWAL} ليرة.\n\nأرسل اسم حسابك، المبلغ المراد سحبه، ورقم الكاش الخاص بك:"
+        msg = f"⚠️ شروط سحب الأرباح:\n• تطبق عمولة مخصصة على السحب.\n• الحد الأدنى للسحب هو {MIN_WITHDRAWAL} ليرة.\n\nأرسل اسم حسابك، المبلغ المراد سحبه، ورقم الكاش الخاص بك:"
         bot.send_message(user_id, msg, reply_markup=back_menu())
     elif text == "🎰 عجلة الفرصة":
         daily_dep, has_spun = get_user_daily_data(user_id)
@@ -386,27 +418,4 @@ def handle_messages(message):
             msg = f"🔒 عجلة الفرصة مقفلة اليوم!\n\n• الشرط: شحن رصيد بقيمة 750 ليرة جديدة (75,000 قديمة) على الأقل خلال اليوم للحصول على دورة واحدة.\n• مجموع شحناتك اليوم: {daily_dep} ليرة.\n\nقم بشحن رصيدك عبر زر (شحن الرصيد) لتفتح معك العجلة فوراً!"
             bot.send_message(user_id, msg, reply_markup=back_menu())
         else:
-            wheel_text = "🎰 أهلاً بك في عجلة الفرصة اليومية! 🎡\n\nلك فرصة واحدة اليوم! اضغط على الزر أدناه للتدوير:"
-            bot.send_message(user_id, wheel_text, reply_markup=wheel_inline_keyboard())
-    elif text == "🎁 قسم الهدايا":
-        bot.send_message(user_id, "🎁 قسم هدايا الوكالة والعروض اليومية.", reply_markup=back_menu())
-    elif text == "👥 نظام الإحالات":
-        bot.send_message(user_id, "👥 شارك رابط البوت مع أصدقائك للحصول على مكافآت.", reply_markup=back_menu())
-    elif text == "📊 حسابي والمعلومات":
-        daily_dep, has_spun = get_user_daily_data(user_id)
-        spin_st = "تم استخدامها اليوم 🔴" if has_spun else ("متاحة لليوم 🟢" if daily_dep >= WHEEL_DAILY_LIMIT or is_admin else "مقفلة 🔒")
-        info = f"👤 معلومات حسابك:\n• الاسم: {message.from_user.first_name}\n• الـ ID: {user_id}\n• شحنك اليومي: {daily_dep} ليرة\n• حالة العجلة: {spin_st}\n• أدنى حد للسحب: {MIN_WITHDRAWAL} ليرة"
-        bot.send_message(user_id, info, reply_markup=back_menu())
-    elif text == "📜 شروط الاستخدام":
-        terms = get_setting('custom_terms')
-        bot.send_message(user_id, terms, reply_markup=back_menu())
-    elif text == "🎧 خدمة الدعم":
-        bot.send_message(user_id, "🎧 أرسل استفسارك وسيقوم الآدمن بالرد عليك.", reply_markup=back_menu())
-    elif text == "🗑️ طلب حذف الحساب":
-        bot.send_message(user_id, "🗑️ أرسل اسم حسابك لتأكيد طلب الحذف لدى الإدارة.", reply_markup=back_menu())
-    else:
-        bot.send_message(user_id, "اختر إحدى الخدمات من القائمة أدناه:", reply_markup=main_menu(is_admin))
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-    
+            wheel_text = "🎰 أهلاً بك في عجلة الفرصة اليومية! 🎡\n\nلك فرصة واحدة اليوم! ا
