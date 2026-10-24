@@ -1,110 +1,78 @@
 import os
-import time
-import requests
-import telebot
 from flask import Flask, request
+import telebot
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
-API_TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
-AGENT_ID = "2826132-odai1@agents.nps"
-ICHANCY_API_URL = "https://agents.ichancy.com/api/create_player"
+# 1. التوكن وإعدادات البوت
+TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
+MIN_WITHDRAWAL = 500  # حد السحب الأدنى
 
-SETTINGS = {
-    "support_link": "https://t.me/odairobertbot"
-}
-
-MIN_WITHDRAW = 500       
-
-bot = telebot.TeleBot(API_TOKEN)
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-USER_BALANCES = {}
-USER_IDS = set()
-TEMP_USER_DATA = {}
-
-@app.route(f'/{API_TOKEN}', methods=['POST'])
+# --- استقبال الـ Webhook من تلغرام ---
+@app.route('/', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
         return '', 200
-    return "Forbidden", 403
+    return 'Forbidden', 403
 
 @app.route('/')
 def index():
-    return "iChancy Bot is Online!", 200
+    return 'iChancy Bot is Online!'
 
-def main_keyboard():
-    markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(
-        telebot.types.KeyboardButton("👤 إنشاء حساب"),
-        telebot.types.KeyboardButton("💳 شحن الرصيد"),
-        telebot.types.KeyboardButton("💸 سحب الرصيد"),
-        telebot.types.KeyboardButton("📊 حسابي والمعلومات"),
-        telebot.types.KeyboardButton("🎧 خدمة الدعم")
-    )
+# --- لوحة الأزرار الرئيسية ---
+def main_menu():
+    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = KeyboardButton("👤 إنشاء حساب")
+    btn2 = KeyboardButton("💳 شحن الرصيد")
+    btn3 = KeyboardButton("💸 سحب الرصيد")
+    btn4 = KeyboardButton("📊 حسابي والمعلومات")
+    btn5 = KeyboardButton("🎧 خدمة الدعم")
+    markup.add(btn1, btn2, btn3, btn4, btn5)
     return markup
 
+# --- معالجة الأمر /start ---
 @bot.message_handler(commands=['start'])
-def send_start(message):
-    USER_IDS.add(message.chat.id)
-    bot.send_message(message.chat.id, "أهلاً بك في البوت الرسمي!", reply_markup=main_keyboard())
+def send_welcome(message):
+    welcome_text = (
+        "مرحباً بك في بوت إدارة وكالة **iChancy** الرسمية! 🎰\n\n"
+        "يمكنك استخدام الأزرار أدناه للتحكم بحسابك، شحن الرصيد، أو سحب الأرباح بسهولة."
+    )
+    bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu(), parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.text == "🎧 خدمة الدعم")
-def support_contact(message):
-    USER_IDS.add(message.chat.id)
-    bot.send_message(message.chat.id, f"للتواصل مع الدعم الفني: {SETTINGS['support_link']}")
+# --- معالجة الضغط على الأزرار ---
+@bot.message_handler(func=lambda message: True)
+def handle_messages(message):
+    text = message.text
 
-@bot.message_handler(func=lambda message: message.text == "👤 إنشاء حساب")
-def ask_username(message):
-    USER_IDS.add(message.chat.id)
-    msg = bot.send_message(message.chat.id, "أرسل اسم المستخدم (Username):")
-    bot.register_next_step_handler(msg, process_custom_username)
+    if text == "👤 إنشاء حساب":
+        msg = "لإنشاء حساب جديد في الوكالة، يرجى إرسال اسم المستخدم المطلوب برمز (Username):"
+        bot.reply_to(message, msg)
 
-def process_custom_username(message):
-    if message.text and message.text.startswith('/'): return
-    username = message.text.strip()
-    TEMP_USER_DATA[message.chat.id] = {"username": username}
-    msg = bot.send_message(message.chat.id, "أرسل كلمة السر (Password):")
-    bot.register_next_step_handler(msg, process_custom_password)
+    elif text == "💳 شحن الرصيد":
+        msg = "لطب شحن الرصيد، يرجى التواصل مع الدعم أو كتابة المبلغ المراد شحنه مع معرف حسابك."
+        bot.reply_to(message, msg)
 
-def process_custom_password(message):
-    if message.text and message.text.startswith('/'): return
-    password = message.text.strip()
-    user_id = message.chat.id
-    username = TEMP_USER_DATA.get(user_id, {}).get("username", "user")
-    try:
-        payload = {"agent_id": AGENT_ID, "username": username, "password": password, "telegram_id": user_id}
-        requests.post(ICHANCY_API_URL, json=payload, timeout=5)
-    except Exception: pass
-    bot.send_message(user_id, f"تم إنشاء الحساب بنجاح!\nالمستخدم: {username}\nكلمة السر: {password}", reply_markup=main_keyboard())
+    elif text == "💸 سحب الرصيد":
+        msg = f"⚠️ **حد السحب الأدنى هو {MIN_WITHDRAWAL} نقطة/عملة.**\n\nيرجى كتابة رقم حسابك والمبلغ المراد سحبه:"
+        bot.reply_to(message, msg, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.text == "💳 شحن الرصيد")
-def deposit_info(message):
-    USER_IDS.add(message.chat.id)
-    bot.send_message(message.chat.id, "يرجى التواصل مع الدعم لشحن الرصيد.")
+    elif text == "📊 حسابي والمعلومات":
+        info = (
+            f"👤 **معلومات الحساب:**\n"
+            f"• الاسم: {message.from_user.first_name}\n"
+            f"• المعرف (ID): `{message.chat.id}`\n"
+            f"• حد السحب الأدنى: {MIN_WITHDRAWAL}"
+        )
+        bot.reply_to(message, info, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.text == "💸 سحب الرصيد")
-def withdraw_info(message):
-    USER_IDS.add(message.chat.id)
-    bot.send_message(message.chat.id, f"الحد الأدنى للسحب: {MIN_WITHDRAW} ليرة.")
-
-@bot.message_handler(func=lambda message: message.text == "📊 حسابي والمعلومات")
-def show_account_info(message):
-    USER_IDS.add(message.chat.id)
-    bal = USER_BALANCES.get(message.from_user.id, 0)
-    bot.send_message(message.chat.id, f"معلومات الحساب:\nID: {message.from_user.id}\nالرصيد: {bal} ليرة")
-
-RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL')
-if RENDER_URL:
-    try:
-        bot.remove_webhook()
-        time.sleep(0.2)
-        bot.set_webhook(url=f"{RENDER_URL}/{API_TOKEN}")
-    except Exception as e:
-        print(f"Webhook error: {e}")
+    elif text == "🎧 خدمة الدعم":
+        bot.reply_to(message, "للتواصل المباشر مع الدعم الفني للوكالة، يرجى إرسال استفسارك هنا وسيقوم الآدمن بالرد عليك.")
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
-  
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    
