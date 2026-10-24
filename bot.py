@@ -13,7 +13,7 @@ MIN_WITHDRAWAL = 500
 WHEEL_DAILY_LIMIT = 750
 ICHANCY_URL = "https://www.ichancy.com"
 
-# كود الوكالة السري (مخفي عن جميع اللاعبين تماماً)
+# كود الوكالة السري (مخفي تماماً عن اللاعبين)
 AGENT_CODE = "2826132-odai1@agents.nps"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
@@ -38,7 +38,7 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد حالياً')")
     cursor.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير محدد حالياً')")
-    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة iChancy:\n1. يتم الخصم التلقائي للرصيد من حساب iChancy مباشرة عند طلب السحب.\n2. يتم تحويل المبلغ المسحوب إلى كاش اللاعب المحدد.\n3. الحد الأدنى للسحب هو 500 ليرة.')")
+    cursor.execute("INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة iChancy:\n1. يتم خصم الرصيد من حساب iChancy أولاً.\n2. يتم تحويل المبلغ إلى كاش اللاعب (شام كاش أو سيريتل كاش).\n3. الحد الأدنى للسحب هو 500 ليرة.')")
     conn.commit()
     conn.close()
 
@@ -156,8 +156,8 @@ def deposit_methods_menu():
 def withdraw_methods_menu():
     markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add(
-        KeyboardButton("💸 استلام عبر شام كاش"),
-        KeyboardButton("💸 استلام عبر سيريتل كاش"),
+        KeyboardButton("💸 سحب عبر شام كاش"),
+        KeyboardButton("💸 سحب عبر سيريتل كاش"),
         KeyboardButton("🔙 رجوع للقائمة الرئيسية")
     )
     return markup
@@ -238,7 +238,7 @@ def handle_callbacks(call):
             add_user_deposit(target_user, 750)
             bot.send_message(target_user, "✅ تم الموافقة على طلب الشحن وتحديث رصيدك.")
         else:
-            bot.send_message(target_user, "✅ تم الخصم التلقائي من حسابك في iChancy وإرسال المبلغ لحساب الكاش الخاص بك بنجاح.")
+            bot.send_message(target_user, "✅ تم خصم الرصيد من حساب iChancy وتحويل المبلغ لكاش الخاص بك بنجاح.")
         bot.edit_message_text(f"{call.message.text}\n\n🟢 الحالة: تم الخصم والتنفيذ المباشر", chat_id=ADMIN_ID, message_id=call.message.message_id)
 
     elif call.data.startswith("reject_"):
@@ -281,7 +281,7 @@ def handle_messages(message):
         bot.send_message(user_id, "⚠️ البوت مغلق للصيانة.")
         return
 
-    main_buttons = ["👤 إنشاء حساب", "💳 شحن الرصيد", "💸 سحب الرصيد", "🎰 عجلة الفرصة", "🎁 قسم الهدايا", "👥 نظام الإحالات", "📊 حسابي والمعلومات", "📜 شروط الاستخدام", "🎧 خدمة الدعم", "🗑️ طلب حذف الحساب", "⚙️ لوحة تحكم الآدمن", "🔙 رجوع للقائمة الرئيسية", "📱 شحن شام كاش", "📱 شحن سيريتل كاش", "💸 استلام عبر شام كاش", "💸 استلام عبر سيريتل كاش"]
+    main_buttons = ["👤 إنشاء حساب", "💳 شحن الرصيد", "💸 سحب الرصيد", "🎰 عجلة الفرصة", "🎁 قسم الهدايا", "👥 نظام الإحالات", "📊 حسابي والمعلومات", "📜 شروط الاستخدام", "🎧 خدمة الدعم", "🗑️ طلب حذف الحساب", "⚙️ لوحة تحكم الآدمن", "🔙 رجوع للقائمة الرئيسية", "📱 شحن شام كاش", "📱 شحن سيريتل كاش", "💸 سحب عبر شام كاش", "💸 سحب عبر سيريتل كاش"]
     if text in main_buttons:
         user_states[user_id] = None
 
@@ -308,7 +308,7 @@ def handle_messages(message):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🌐 الدخول الفوري إلى iChancy", url=ICHANCY_URL))
         
-        success_msg = f"✅ تم إنشاء حسابك بنجاح ونزوله في الموقع! 🎉\n\n• اسم المستخدم: `{username}`\n• كلمة المرور: `{password}`\n\nاضغط على الزر أدناه للدخول إلى حسابك مباشرة:"
+        success_msg = f"✅ تم إنشاء حسابك بنجاح ونزوله في الكاشيرة تلقائياً! 🎉\n\n• اسم المستخدم: `{username}`\n• كلمة المرور: `{password}`\n\nاضغط على الزر أدناه للدخول إلى حسابك مباشرة:"
         bot.send_message(user_id, success_msg, reply_markup=markup, parse_mode="Markdown")
         bot.send_message(ADMIN_ID, f"👤 حساب جديد مضاف للكاشيرة تلقائياً:\n• اليوزر: {username}\n• الباسورد: {password}\n• ID: {user_id}")
         return
@@ -332,37 +332,42 @@ def handle_messages(message):
         bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup)
         return
 
-    if state == 'awaiting_ichancy_user':
-        withdraw_temp[user_id]['ichancy_username'] = text
-        user_states[user_id] = 'awaiting_with_amount'
-        bot.send_message(user_id, f"💵 أدخل المبلغ المراد سحبه تلقائياً من حسابك في iChancy (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
+    # الخطوة 1 من السحب: استقبال حساب iChancy
+    if state == 'awaiting_ichancy_username':
+        withdraw_temp[user_id] = {'ichancy_username': text}
+        user_states[user_id] = 'awaiting_ichancy_amount'
+        bot.send_message(user_id, f"💵 أدخل المبلغ المراد سحبه من حساب iChancy (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
         return
 
-    if state == 'awaiting_with_amount':
+    # الخطوة 2 من السحب: استقبال المبلغ ثم الانتقال لاختيار وسيلة التحويل
+    if state == 'awaiting_ichancy_amount':
         withdraw_temp[user_id]['amount'] = text
-        user_states[user_id] = 'awaiting_payout_method'
-        bot.send_message(user_id, "💳 اختر طريقة استلام الأموال المحولة:", reply_markup=withdraw_methods_menu())
+        user_states[user_id] = None
+        bot.send_message(user_id, "💳 اختر طريقة استلام الأرباح المحولة:", reply_markup=withdraw_methods_menu())
         return
 
-    if state == 'awaiting_payout_account':
-        payout_account = text
-        ichancy_user = withdraw_temp.get(user_id, {}).get('ichancy_username', 'غير محدد')
-        amount = withdraw_temp.get(user_id, {}).get('amount', 'غير محدد')
-        method = withdraw_temp.get(user_id, {}).get('method', 'غير محدد')
+    # الخطوة 3 من السحب: استقبال كود أو عنوان الكاش (شام كاش أو سيريتل كاش)
+    if state == 'awaiting_payout_code':
+        payout_code = text
+        w_data = withdraw_temp.get(user_id, {})
+        ichancy_user = w_data.get('ichancy_username', 'غير محدد')
+        amount = w_data.get('amount', 'غير محدد')
+        method = w_data.get('method', 'غير محدد')
+        
         user_states[user_id] = None
         withdraw_temp.pop(user_id, None)
 
-        bot.send_message(user_id, "⏳ جاري الخصم التلقائي من حسابك في iChancy وتحويل المبلغ لعنوان الكاش الخاص بك...", reply_markup=main_menu(is_admin))
+        bot.send_message(user_id, "⏳ جاري خصم الرصيد من حسابك في iChancy وتحويل المبلغ لعنوان الكاش الخاص بك...", reply_markup=main_menu(is_admin))
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("✅ تأكيد السحب والخصم الآلي", callback_data=f"approve_{user_id}_with"), InlineKeyboardButton("❌ رفض", callback_data=f"reject_{user_id}_with"))
         
         admin_msg = (
-            f"💸 **طلب سحب كاش آلي:**\n\n"
-            f"1️⃣ **الحساب المسحوب منه:** `{ichancy_user}`\n"
-            f"2️⃣ **المبلغ المطلوب خصمه:** {amount} ليرة\n"
-            f"3️⃣ **وسيلة التحويل:** {method}\n"
-            f"4️⃣ **كود الكاش للاستلام:** `{payout_account}`\n\n"
+            f"💸 **طلب سحب رصيد مفصل:**\n\n"
+            f"1️⃣ **حساب iChancy المسحوب منه:** `{ichancy_user}`\n"
+            f"2️⃣ **المبلغ المطلوب:** {amount} ليرة\n"
+            f"3️⃣ **طريقة التحويل:** {method}\n"
+            f"4️⃣ **كود الكاش للاستلام:** `{payout_code}`\n\n"
             f"• **المستخدم:** {message.from_user.first_name} (`{user_id}`)"
         )
         bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup, parse_mode="Markdown")
@@ -432,7 +437,7 @@ def handle_messages(message):
         bot.send_message(user_id, "تم العودة للقائمة الرئيسية:", reply_markup=main_menu(is_admin))
     elif text == "👤 إنشاء حساب":
         user_states[user_id] = 'awaiting_username'
-        bot.send_message(user_id, "👤 أرسل اسم المستخدم (Username):", reply_markup=back_menu())
+        bot.send_message(user_id, "👤 أرسل اسم المستخدم (Username) الجديد:", reply_markup=back_menu())
     elif text == "💳 شحن الرصيد":
         bot.send_message(user_id, "💳 اختر طريقة الشحن:", reply_markup=deposit_methods_menu())
     elif text == "📱 شحن شام كاش":
@@ -445,10 +450,8 @@ def handle_messages(message):
         user_states[user_id] = 'awaiting_dep_tx_id'
         syriatel = get_setting('syriatel_cash')
         bot.send_message(user_id, f"📱 **سيريتل كاش**\nالكود: `{syriatel}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
+    
+    # بدء عملية السحب المفصلة من حساب iChancy
     elif text == "💸 سحب الرصيد":
-        withdraw_temp[user_id] = {}
-        user_states[user_id] = 'awaiting_ichancy_user'
-        bot.send_message(user_id, "👤 أرسل **اسم حسابك على iChancy** المراد السحب منه تلقائياً:", reply_markup=back_menu())
-    elif text == "💸 استلام عبر شام كاش":
-        withdraw_temp[user_id]['method'] = 'شام كاش'
-        user_states[user_id] 
+        user_states[user_id] = 'awaiting_ichancy_username'
+        bot.send_message(user_id, "👤 أرسل **اسم حسابك الأساسي على iChancy** المراد سحب الرصيد منه:", reply_ma
