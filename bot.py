@@ -11,17 +11,14 @@ ICHANCY_API_URL = "https://agents.ichancy.com/api/create_player"
 
 SETTINGS = {
     "maintenance": False,
-    "sham_cash": "يرجى التواصل مع الإدارة",
-    "syriatel_cash": "يرجى التواصل مع الإدارة",
-    "referral_url": "https://t.me/odairobertbot?start=",
     "deposit_bonus_active": False,
     "deposit_bonus_percentage": 10,
     "support_link": "https://t.me/odairobertbot"
 }
 
 CUSTOM_DEPOSIT_METHODS = {
-    "شام كاش": "يرجى ضبط العنوان من الإدارة",
-    "سيرياتل كاش": "يرجى ضبط الرقم من الإدارة"
+    "شام كاش": "يرجى التواصل مع الإدارة للحصول على التحويل",
+    "سيرياتل كاش": "يرجى التواصل مع الإدارة للحصول على الرقم"
 }
 
 CUSTOM_WITHDRAW_METHODS = ["شام كاش", "سيرياتل كاش"]
@@ -36,10 +33,13 @@ USER_IDS = set()
 ADMIN_IDS = set()
 REGISTERED_USERNAMES = set()
 TEMP_USER_DATA = {}
+TEMP_DEPOSIT_DATA = {}
+PENDING_DEPOSITS = {}
+ADMIN_STATES = {}
 
 def check_maintenance(message):
     if SETTINGS["maintenance"] and message.chat.id not in ADMIN_IDS:
-        bot.send_message(message.chat.id, "⚠️ البوت قيد الصيانة حالياً!")
+        bot.send_message(message.chat.id, "⚠️ **البوت قيد الصيانة حالياً!**\nيرجى المحاولة لاحقاً.", parse_mode="Markdown")
         return True
     return False
 
@@ -59,82 +59,166 @@ def index():
 
 @app.route('/wheel')
 def wheel_page():
-    return "Wheel Page is working!"
+    return """<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>عجلة الفرصة</title><style>body { background: #0f172a; color: #fff; font-family: Tahoma, sans-serif; text-align: center; padding: 20px; } h2 { color: #facc15; } .wheel-container { position: relative; width: 280px; height: 280px; margin: 20px auto; } canvas { width: 100%; height: 100%; border-radius: 50%; border: 5px solid #facc15; } button { background: #f59e0b; color: white; border: none; padding: 12px 30px; font-size: 18px; font-weight: bold; border-radius: 25px; cursor: pointer; margin-top: 15px; } #result { margin-top: 15px; font-size: 18px; color: #4ade80; font-weight: bold; }</style></head><body><h2>⭐ عجلة الفرصة ⭐</h2><div class="wheel-container"><canvas id="wheelCanvas" width="280" height="280"></canvas></div><button onclick="spinWheel()">دَوْر الآن 🎯</button><div id="result"></div><script>const canvas = document.getElementById('wheelCanvas'); const ctx = canvas.getContext('2d'); const sectors = ["5,000", "10,000", "25,000", "50,000", "100,000", "حظ أوفر", "لفة مجانية", "1,000,000"]; const colors = ["#3b82f6", "#1d4ed8", "#4f46e5", "#2563eb", "#312e81", "#dc2626", "#9333ea", "#1e40af"]; function drawWheel() { const arc = Math.PI / 4; sectors.forEach((s, i) => { ctx.beginPath(); ctx.moveTo(140, 140); ctx.arc(140, 140, 140, i*arc, (i+1)*arc); ctx.fillStyle = colors[i]; ctx.fill(); ctx.save(); ctx.translate(140, 140); ctx.rotate(i*arc + arc/2); ctx.textAlign = "right"; ctx.fillStyle = "#fff"; ctx.font = "bold 12px Tahoma"; ctx.fillText(s, 120, 5); ctx.restore(); }); } drawWheel(); function spinWheel() { const win = sectors[Math.floor(Math.random() * sectors.length)]; document.getElementById('result').innerText = '🎉 نتيجة العجلة: ' + win; }</script></body></html>"""
 
-@bot.message_handler(commands=['start'])
-def send_start(message):
-    USER_IDS.add(message.chat.id)
-    if check_maintenance(message): return
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    ADMIN_IDS.add(message.chat.id)
+    show_admin_menu(message.chat.id)
+
+def show_admin_menu(chat_id, message_id=None):
+    m_status = "🔴 مفعّل" if SETTINGS["maintenance"] else "🟢 معطّل"
+    b_status = f"🟢 مفعّل ({SETTINGS['deposit_bonus_percentage']}%)" if SETTINGS["deposit_bonus_active"] else "🔴 معطّل"
+    
+    text = (
+        f"⚙️ **لوحة تحكم الإدارة:**\n\n"
+        f"🛠 **وضع الصيانة:** {m_status}\n"
+        f"🎯 **بونص الإيداع:** {b_status}\n"
+        f"💳 **طرق الشحن:** `{list(CUSTOM_DEPOSIT_METHODS.keys())}`\n"
+        f"💸 **طرق السحب:** `{CUSTOM_WITHDRAW_METHODS}`\n"
+    )
+    markup = telebot.types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        telebot.types.InlineKeyboardButton("➕ إضافة طريقة شحن", callback_data="admin_add_dep"),
+        telebot.types.InlineKeyboardButton("➕ إضافة طريقة سحب", callback_data="admin_add_wdr"),
+        telebot.types.InlineKeyboardButton("➕ إضافة رصيد لزبون", callback_data="admin_add_bal"),
+        telebot.types.InlineKeyboardButton("➖ خصم رصيد من زبون", callback_data="admin_sub_bal"),
+        telebot.types.InlineKeyboardButton("📢 إرسال إعلان للكل", callback_data="admin_broadcast"),
+        telebot.types.InlineKeyboardButton("🔄 تبديل وضع الصيانة", callback_data="admin_toggle_m"),
+        telebot.types.InlineKeyboardButton("🎯 تفعيل/إيقاف البونص", callback_data="admin_toggle_bonus")
+    )
+    if message_id:
+        try:
+            bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode="Markdown", reply_markup=markup)
+            return
+        except Exception:
+            pass
+    bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
+def admin_callbacks(call):
+    if call.data == "admin_add_dep":
+        bot.answer_callback_query(call.id)
+        ADMIN_STATES[call.message.chat.id] = {"action": "new_dep_name"}
+        msg = bot.send_message(call.message.chat.id, "💳 أرسل اسم طريقة الشحن الجديدة:")
+        bot.register_next_step_handler(msg, process_new_dep_name)
+    elif call.data == "admin_add_wdr":
+        bot.answer_callback_query(call.id)
+        ADMIN_STATES[call.message.chat.id] = {"action": "new_wdr_name"}
+        msg = bot.send_message(call.message.chat.id, "💸 أرسل اسم طريقة السحب الجديدة:")
+        bot.register_next_step_handler(msg, process_new_wdr_name)
+    elif call.data == "admin_add_bal":
+        bot.answer_callback_query(call.id)
+        ADMIN_STATES[call.message.chat.id] = {"action": "add_bal_id"}
+        msg = bot.send_message(call.message.chat.id, "➕ أرسل معرف المستخدم (Telegram ID):")
+        bot.register_next_step_handler(msg, process_admin_bal_id)
+    elif call.data == "admin_sub_bal":
+        bot.answer_callback_query(call.id)
+        ADMIN_STATES[call.message.chat.id] = {"action": "sub_bal_id"}
+        msg = bot.send_message(call.message.chat.id, "➖ أرسل معرف المستخدم (Telegram ID):")
+        bot.register_next_step_handler(msg, process_admin_bal_id)
+    elif call.data == "admin_broadcast":
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "📢 أرسل نص الإعلان:")
+        bot.register_next_step_handler(msg, execute_broadcast)
+    elif call.data == "admin_toggle_m":
+        SETTINGS["maintenance"] = not SETTINGS["maintenance"]
+        bot.answer_callback_query(call.id, "✅ تم!")
+        show_admin_menu(call.message.chat.id, call.message.message_id)
+    elif call.data == "admin_toggle_bonus":
+        SETTINGS["deposit_bonus_active"] = not SETTINGS["deposit_bonus_active"]
+        bot.answer_callback_query(call.id, "✅ تم!")
+        show_admin_menu(call.message.chat.id, call.message.message_id)
+
+def process_new_dep_name(message):
+    admin_id = message.chat.id
+    name = message.text.strip()
+    ADMIN_STATES[admin_id]["dep_name"] = name
+    msg = bot.send_message(admin_id, f"📍 أرسل تفاصيل أو عنوان ({name}):")
+    bot.register_next_step_handler(msg, process_new_dep_details)
+
+def process_new_dep_details(message):
+    admin_id = message.chat.id
+    details = message.text.strip()
+    dep_name = ADMIN_STATES[admin_id]["dep_name"]
+    CUSTOM_DEPOSIT_METHODS[dep_name] = details
+    bot.send_message(admin_id, f"✅ تمت إضافة ({dep_name})!")
+    if admin_id in ADMIN_STATES: del ADMIN_STATES[admin_id]
+    show_admin_menu(admin_id)
+
+def process_new_wdr_name(message):
+    admin_id = message.chat.id
+    name = message.text.strip()
+    CUSTOM_WITHDRAW_METHODS.append(name)
+    bot.send_message(admin_id, f"✅ تمت إضافة طريقة السحب ({name})!")
+    if admin_id in ADMIN_STATES: del ADMIN_STATES[admin_id]
+    show_admin_menu(admin_id)
+
+def process_admin_bal_id(message):
+    admin_id = message.chat.id
+    if admin_id not in ADMIN_STATES: return
+    try:
+        target_user = int(message.text.strip())
+        ADMIN_STATES[admin_id]["target_user"] = target_user
+        action_type = ADMIN_STATES[admin_id]["action"]
+        if "add" in action_type:
+            ADMIN_STATES[admin_id]["action"] = "add_bal_amount"
+            msg = bot.send_message(admin_id, "💰 أرسل المبلغ المراد إضافته:")
+        else:
+            ADMIN_STATES[admin_id]["action"] = "sub_bal_amount"
+            msg = bot.send_message(admin_id, "💸 أرسل المبلغ المراد خصمه:")
+        bot.register_next_step_handler(msg, process_admin_bal_amount)
+    except ValueError:
+        msg = bot.send_message(admin_id, "❌ المعرف غير صحيح، أرسل رقم ID صحيح:")
+        bot.register_next_step_handler(msg, process_admin_bal_id)
+
+def process_admin_bal_amount(message):
+    admin_id = message.chat.id
+    if admin_id not in ADMIN_STATES: return
+    try:
+        amount = float(message.text.strip())
+        state = ADMIN_STATES[admin_id]
+        target_user = state["target_user"]
+        action_type = state["action"]
+        if "add" in action_type:
+            USER_BALANCES[target_user] = USER_BALANCES.get(target_user, 0) + amount
+            bot.send_message(admin_id, f"✅ تم إضافة {amount} لـ `{target_user}`.", parse_mode="Markdown")
+            try: bot.send_message(target_user, f"🎉 تم شحن حسابك بمبلغ: `{amount}` ليرة", parse_mode="Markdown")
+            except Exception: pass
+        else:
+            USER_BALANCES[target_user] = max(0, USER_BALANCES.get(target_user, 0) - amount)
+            bot.send_message(admin_id, f"✅ تم خصم {amount} من `{target_user}`.", parse_mode="Markdown")
+            try: bot.send_message(target_user, f"⚠️ تم خصم مبلغ `{amount}` ليرة من حسابك.", parse_mode="Markdown")
+            except Exception: pass
+        del ADMIN_STATES[admin_id]
+        show_admin_menu(admin_id)
+    except ValueError:
+        msg = bot.send_message(admin_id, "❌ القيمة غير صحيحة، أرسل رقماً:")
+        bot.register_next_step_handler(msg, process_admin_bal_amount)
+
+def execute_broadcast(message):
+    success = 0
+    bot.send_message(message.chat.id, "⏳ جاري الإرسال...")
+    for uid in USER_IDS:
+        try:
+            bot.send_message(uid, message.text)
+            success += 1
+        except Exception: pass
+    bot.send_message(message.chat.id, f"📊 تم الإرسال لـ {success} مستخدم.")
+    show_admin_menu(message.chat.id)
+
+def main_keyboard():
     markup = telebot.types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add(
         telebot.types.KeyboardButton("👤 إنشاء حساب"),
         telebot.types.KeyboardButton("💳 شحن الرصيد"),
         telebot.types.KeyboardButton("💸 سحب الرصيد"),
+        telebot.types.KeyboardButton("🎰 عجلة الفرصة"),
         telebot.types.KeyboardButton("📊 حسابي والمعلومات"),
         telebot.types.KeyboardButton("🎧 خدمة الدعم")
     )
-    bot.send_message(message.chat.id, "مرحباً بك في البوت الرسمي.", reply_markup=markup)
+    return markup
 
-@bot.message_handler(func=lambda message: message.text == "🎧 خدمة الدعم")
-def support_contact(message):
-    USER_IDS.add(message.chat.id)
-    if check_maintenance(message): return
-    bot.send_message(message.chat.id, f"للتواصل مع الدعم: {SETTINGS['support_link']}")
-
-@bot.message_handler(func=lambda message: message.text == "👤 إنشاء حساب")
-def ask_username(message):
-    USER_IDS.add(message.chat.id)
-    if check_maintenance(message): return
-    msg = bot.send_message(message.chat.id, "أرسل اسم المستخدم (Username):")
-    bot.register_next_step_handler(msg, process_custom_username)
-
-def process_custom_username(message):
-    if message.text and message.text.startswith('/'): return
-    username = message.text.strip()
-    TEMP_USER_DATA[message.chat.id] = {"username": username}
-    msg = bot.send_message(message.chat.id, "أرسل كلمة السر (Password):")
-    bot.register_next_step_handler(msg, process_custom_password)
-
-def process_custom_password(message):
-    if message.text and message.text.startswith('/'): return
-    password = message.text.strip()
-    user_id = message.chat.id
-    username = TEMP_USER_DATA.get(user_id, {}).get("username", "user")
-    try:
-        payload = {"agent_id": AGENT_ID, "username": username, "password": password, "telegram_id": user_id}
-        requests.post(ICHANCY_API_URL, json=payload, timeout=10)
-    except Exception: pass
-    bot.send_message(user_id, f"تم إنشاء الحساب بنجاح!\nاسم المستخدم: {username}\nكلمة السر: {password}")
-
-@bot.message_handler(func=lambda message: message.text == "💳 شحن الرصيد")
-def deposit_info(message):
-    USER_IDS.add(message.chat.id)
-    if check_maintenance(message): return
-    bot.send_message(message.chat.id, "يرجى التواصل مع الإدارة لشحن الرصيد.")
-
-@bot.message_handler(func=lambda message: message.text == "💸 سحب الرصيد")
-def withdraw_info(message):
-    USER_IDS.add(message.chat.id)
-    if check_maintenance(message): return
-    bot.send_message(message.chat.id, f"الحد الأدنى للسحب: {MIN_WITHDRAW} ليرة.")
-
-@bot.message_handler(func=lambda message: message.text == "📊 حسابي والمعلومات")
-def show_account_info(message):
-    USER_IDS.add(message.chat.id)
-    if check_maintenance(message): return
-    bal = USER_BALANCES.get(message.from_user.id, 0)
-    bot.send_message(message.chat.id, f"رصيدك الحالي: {bal} ليرة")
-
-RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
-if RENDER_EXTERNAL_URL:
-    try:
-        bot.remove_webhook()
-        time.sleep(0.5)
-        bot.set_webhook(url=f"{RENDER_EXTERNAL_URL}/{API_TOKEN}")
-    except Exception as e:
-        print(f"Webhook warning: {e}")
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
-    
+@bot.message_handler(commands=['start'])
+def send
+        
