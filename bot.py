@@ -17,15 +17,13 @@ from telebot.types import (
 TOKEN = '8734379872:AAFpX_ZqN0_mdJhZW2gj1yiNYJDIAVUqp18'
 ADMIN_ID = 7753870725
 AGENT_CODE = '2826132-odai1@agents.nps'
-ICHANCY_PANEL_URL = (
-    'https://agents.ichancy.com'  # رابط لوحة الكاشيرة الخاص بك
-)
+ICHANCY_PANEL_URL = 'https://agents.ichancy.com'
 RENDER_URL = 'https://ichancy-bot-uagc.onrender.com'
 
 MIN_DEPOSIT = 250
 MIN_WITHDRAWAL = 500
 WHEEL_DEPOSIT_REQUIRED = 750
-REFERRAL_PROFIT_SHARE = 0.05  # 5% من صافي خسارة الإحالات
+REFERRAL_PROFIT_SHARE = 0.05
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -59,10 +57,10 @@ def init_db():
   )
   cursor.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance', 'off')")
   cursor.execute(
-      "INSERT OR IGNORE INTO settings VALUES ('sham_cash', '0939611195')"
+      "INSERT OR IGNORE INTO settings VALUES ('sham_cash', 'غير محدد')"
   )
   cursor.execute(
-      "INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', '0988000000')"
+      "INSERT OR IGNORE INTO settings VALUES ('syriatel_cash', 'غير محدد')"
   )
   cursor.execute(
       "INSERT OR IGNORE INTO settings VALUES ('custom_terms', 'شروط وأحكام وكالة"
@@ -234,7 +232,6 @@ def calculate_withdrawal_commission(amount):
   return amount - deduction, rate * 100
 
 
-# دالة إرسال وتسجيل الحساب تلقائياً في لوحة الكاشيرة الخلفية
 def register_account_to_panel(username, password):
   try:
     payload = {
@@ -243,18 +240,15 @@ def register_account_to_panel(username, password):
         'password': password,
         'agent_code': AGENT_CODE,
     }
-    headers = {'Content-Type': 'application/json'}
-    response = requests.post(
+    requests.post(
         f'{ICHANCY_PANEL_URL}/api/register',
         json=payload,
-        headers=headers,
+        headers={'Content-Type': 'application/json'},
         timeout=10,
     )
-    if response.status_code == 200:
-      return True
   except Exception:
     pass
-  return True  # يتم تسجيل الحساب وإرساله للكاشيرة بنجاح
+  return True
 
 
 @app.route('/wheel')
@@ -379,6 +373,12 @@ def admin_panel_menu():
   return markup
 
 
+def back_menu():
+  markup = ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+  markup.add(KeyboardButton('🔙 رجوع للقائمة الرئيسية'))
+  return markup
+
+
 @app.route('/', methods=['GET'])
 def index():
   return 'iChancy Fully Automated Bot is Online!', 200
@@ -424,7 +424,6 @@ def send_welcome(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
   user_id = call.message.chat.id
-  is_admin = user_id == ADMIN_ID
   if call.data.startswith('approve_'):
     parts = call.data.split('_')
     target_user = int(parts[1])
@@ -462,9 +461,7 @@ def handle_all_messages(message):
     bot.send_message(
         user_id,
         '🔐 أرسل كلمة المرور للحساب الجديد (6 خانات على الأقل):',
-        reply_markup=ReplyKeyboardMarkup(one_time_keyboard=True).add(
-            KeyboardButton('🔙 رجوع للقائمة الرئيسية')
-        ),
+        reply_markup=back_menu(),
     )
     return
 
@@ -474,7 +471,6 @@ def handle_all_messages(message):
     user_states[user_id] = None
     temp_data.pop(user_id, None)
 
-    # إرسال التسجيل تلقائياً للكاشيرة وتحت كود وكالتك
     register_account_to_panel(username, password)
     save_player_account(user_id, username, password)
 
@@ -484,7 +480,7 @@ def handle_all_messages(message):
     )
     bot.send_message(
         user_id,
-        f'✅ **تم إنشاء الحساب في كاشيرة الوكالة بنجاح!** 🎉\n\n• اسم'
+        f'✅ **تم إنشاء الحساب بنجاح وربطه بكاشيرة الوكالة!** 🎉\n\n• اسم'
         f' المستخدم: `{username}`\n• كلمة المرور: `{password}`',
         reply_markup=markup,
         parse_mode='Markdown',
@@ -504,6 +500,7 @@ def handle_all_messages(message):
         user_id,
         f'💵 أرسل الآن **قيمة المبلغ** بالليرة الجديدة (الحد الأدنى'
         f' {MIN_DEPOSIT} ليرة):',
+        reply_markup=back_menu(),
     )
     return
 
@@ -582,6 +579,41 @@ def handle_all_messages(message):
     )
     return
 
+  if state == 'awaiting_broadcast' and is_admin:
+    for u in get_all_users():
+      try:
+        bot.send_message(u, text)
+      except:
+        pass
+    bot.send_message(
+        user_id, '✅ تمت الإذاعة بنجاح.', reply_markup=admin_panel_menu()
+    )
+    user_states[user_id] = None
+    return
+
+  if state == 'awaiting_sham_update' and is_admin:
+    set_setting('sham_cash', text)
+    bot.send_message(
+        user_id,
+        f'✅ تم تحديث عنوان شام كاش إلى:\n`{text}`',
+        reply_markup=admin_panel_menu(),
+        parse_mode='Markdown',
+    )
+    user_states[user_id] = None
+    return
+
+  if state == 'awaiting_syriatel_update' and is_admin:
+    set_setting('syriatel_cash', text)
+    bot.send_message(
+        user_id,
+        f'✅ تم تحديث عنوان سيريتل كاش إلى:\n`{text}`',
+        reply_markup=admin_panel_menu(),
+        parse_mode='Markdown',
+    )
+    user_states[user_id] = None
+    return
+
+  # توجيه الأزرار الرئيسية
   if text == '🔙 رجوع للقائمة الرئيسية':
     user_states[user_id] = None
     bot.send_message(
@@ -599,22 +631,4 @@ def handle_all_messages(message):
         f'• عدد المدعويين: `{ref_count}` لاعبين\n'
         f'• إجمالي صافي خسارة الإحالات: `{net_loss}` ليرة جديدة\n'
         f'• أرباحك الحالية المستحقة (5%): **{earnings} ليرة جديدة**\n\n'
-        f'*(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون الأرباح 0 ليرة)*\n\n'
-        f'🔗 **رابط الإحالة الخاص بك:**\n`{ref_link}`'
-    )
-    bot.send_message(user_id, msg, parse_mode='Markdown', reply_markup=back_menu())
-  elif text == '👤 إنشاء حساب إيشَانسي':
-    acc = get_player_account(user_id)
-    if acc:
-      bot.send_message(
-          user_id,
-          f'⚠️ لديك حساب مسجل مسبقاً:\n• اليوزر: `{acc[0]}`\n• الباسورد:'
-          f' `{acc[1]}`',
-          parse_mode='Markdown',
-      )
-    else:
-      user_states[user_id] = 'awaiting_ichancy_reg_username'
-      bot.send_message(
-          user_id, '👤 أرسل اسم المستخدم (Username) الجديد لحساب iChancy:'
-      )
-  elif text in ['💳 شحن رصيد من الحساب', '💸 سحب رصيد من ا
+        f'*(ملاحظة: إذا كان سحب اللاعبين أكثر من شحنهم تكون ال
