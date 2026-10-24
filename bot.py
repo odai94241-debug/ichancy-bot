@@ -471,4 +471,91 @@ def handle_messages(message):
         set_setting('maintenance', 'off')
         bot.send_message(user_id, "🟢 تم إيقاف الصيانة.", reply_markup=admin_panel_menu())
         return
-    if text == "📢 إرسا
+    if text == "📢 إرسال إذاعة للجميع" and is_admin:
+        user_states[user_id] = 'awaiting_broadcast'
+        bot.send_message(user_id, "أرسل النص أو الصورة للإذاعة:")
+        return
+    if text == "📱 تغيير كود الشام كاش" and is_admin:
+        user_states[user_id] = 'awaiting_sham'
+        bot.send_message(user_id, "أرسل كود شام كاش الجديد:")
+        return
+    if text == "📱 تغيير كود سيريتل كاش" and is_admin:
+        user_states[user_id] = 'awaiting_syriatel'
+        bot.send_message(user_id, "أرسل كود سيريتل كاش الجديد:")
+        return
+    if text == "👥 عدد الأعضاء المسجلين" and is_admin:
+        total = len(get_all_users())
+        bot.send_message(user_id, f"📊 إجمالي الأعضاء: {total}")
+        return
+
+    if text == "🔙 رجوع للقائمة الرئيسية":
+        user_states[user_id] = None
+        user_registration_temp.pop(user_id, None)
+        deposit_temp.pop(user_id, None)
+        withdraw_temp.pop(user_id, None)
+        bot.send_message(user_id, "تم العودة للقائمة الرئيسية:", reply_markup=main_menu(is_admin))
+    elif text == "👤 إنشاء حساب":
+        user_states[user_id] = 'awaiting_username'
+        bot.send_message(user_id, "👤 أرسل اسم المستخدم (Username) الجديد:", reply_markup=back_menu())
+    elif text == "💳 شحن الرصيد":
+        bot.send_message(user_id, "💳 اختر طريقة الشحن:", reply_markup=deposit_methods_menu())
+    elif text == "📱 شحن شام كاش":
+        deposit_temp[user_id] = {'method': 'شام كاش'}
+        user_states[user_id] = 'awaiting_dep_tx_id'
+        sham = get_setting('sham_cash')
+        bot.send_message(user_id, f"📱 **شام كاش**\nالكود: `{sham}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
+    elif text == "📱 شحن سيريتل كاش":
+        deposit_temp[user_id] = {'method': 'سيريتل كاش'}
+        user_states[user_id] = 'awaiting_dep_tx_id'
+        syriatel = get_setting('syriatel_cash')
+        bot.send_message(user_id, f"📱 **سيريتل كاش**\nالكود: `{syriatel}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
+    
+    elif text == "💸 سحب الرصيد":
+        user_states[user_id] = 'awaiting_ichancy_username'
+        bot.send_message(user_id, "👤 أرسل اسم حسابك الأساسي على iChancy المراد سحب الرصيد منه:", reply_markup=back_menu())
+    
+    elif text == "💸 سحب عبر شام كاش":
+        if user_id in withdraw_temp:
+            withdraw_temp[user_id]['method'] = 'شام كاش'
+        else:
+            withdraw_temp[user_id] = {'method': 'شام كاش'}
+        user_states[user_id] = 'awaiting_payout_code'
+        bot.send_message(user_id, "📱 أدخل عنوان أو كود **الشام كاش** الخاص بك لاستلام المبلغ:", reply_markup=back_menu())
+        
+    elif text == "💸 سحب عبر سيريتل كاش":
+        if user_id in withdraw_temp:
+            withdraw_temp[user_id]['method'] = 'سيريتل كاش'
+        else:
+            withdraw_temp[user_id] = {'method': 'سيريتل كاش'}
+        user_states[user_id] = 'awaiting_payout_code'
+        bot.send_message(user_id, "📱 أدخل عنوان أو كود **سيريتل كاش** الخاص بك لاستلام المبلغ:", reply_markup=back_menu())
+
+    elif text == "🎰 عجلة الفرصة":
+        daily_dep, has_spun = get_user_daily_data(user_id)
+        if has_spun and not is_admin:
+            bot.send_message(user_id, "🛑 لقد استخدمت فرصة اليوم!", reply_markup=back_menu())
+        elif daily_dep < WHEEL_DAILY_LIMIT and not is_admin:
+            bot.send_message(user_id, f"🔒 عجلة الفرصة مقفلة (الشرط: 750 ليرة شحن يومي).", reply_markup=back_menu())
+        else:
+            bot.send_message(user_id, "🎰 اضغط للتدوير:", reply_markup=wheel_inline_keyboard())
+    elif text == "🎁 قسم الهدايا":
+        bot.send_message(user_id, "🎁 قسم الهدايا والعروض.", reply_markup=back_menu())
+    elif text == "👥 نظام الإحالات":
+        bot.send_message(user_id, "👥 شارك رابط البوت.", reply_markup=back_menu())
+    elif text == "📊 حسابي والمعلومات":
+        daily_dep, has_spun = get_user_daily_data(user_id)
+        spin_st = "متاحة 🟢" if not has_spun or is_admin else "مستخدمة 🔴"
+        info = f"👤 معلوماتك:\n• الاسم: {message.from_user.first_name}\n• الشحن اليومي: {daily_dep}\n• العجلة: {spin_st}"
+        bot.send_message(user_id, info, reply_markup=back_menu())
+    elif text == "📜 شروط الاستخدام":
+        terms = get_setting('custom_terms')
+        bot.send_message(user_id, terms, reply_markup=back_menu())
+    elif text == "🎧 خدمة الدعم":
+        bot.send_message(user_id, "🎧 أرسل استفسارك للدعم.", reply_markup=back_menu())
+    elif text == "🗑️ طلب حذف الحساب":
+        bot.send_message(user_id, "🗑️ أرسل اسم حسابك للحذف.", reply_markup=back_menu())
+    else:
+        bot.send_message(user_id, "اختر من القائمة:", reply_markup=main_menu(is_admin))
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
