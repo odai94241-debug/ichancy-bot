@@ -332,21 +332,18 @@ def handle_messages(message):
         bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup)
         return
 
-    # الخطوة 1 من السحب: استقبال حساب iChancy
     if state == 'awaiting_ichancy_username':
         withdraw_temp[user_id] = {'ichancy_username': text}
         user_states[user_id] = 'awaiting_ichancy_amount'
         bot.send_message(user_id, f"💵 أدخل المبلغ المراد سحبه من حساب iChancy (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
         return
 
-    # الخطوة 2 من السحب: استقبال المبلغ ثم الانتقال لاختيار وسيلة التحويل
     if state == 'awaiting_ichancy_amount':
         withdraw_temp[user_id]['amount'] = text
         user_states[user_id] = None
         bot.send_message(user_id, "💳 اختر طريقة استلام الأرباح المحولة:", reply_markup=withdraw_methods_menu())
         return
 
-    # الخطوة 3 من السحب: استقبال كود أو عنوان الكاش (شام كاش أو سيريتل كاش)
     if state == 'awaiting_payout_code':
         payout_code = text
         w_data = withdraw_temp.get(user_id, {})
@@ -451,7 +448,13 @@ def handle_messages(message):
         syriatel = get_setting('syriatel_cash')
         bot.send_message(user_id, f"📱 **سيريتل كاش**\nالكود: `{syriatel}`\n\nأرسل **رقم العملية**:", parse_mode="Markdown", reply_markup=back_menu())
     
-    # بدء عملية السحب المفصلة من حساب iChancy
     elif text == "💸 سحب الرصيد":
         user_states[user_id] = 'awaiting_ichancy_username'
-        bot.send_message(user_id, "👤 أرسل **اسم حسابك الأساسي على iChancy** المراد سحب الرصيد منه:", reply_ma
+        bot.send_message(user_id, "👤 أرسل اسم حسابك الأساسي على iChancy المراد سحب الرصيد منه:", reply_markup=back_menu())
+    
+    elif text == "💸 سحب عبر شام كاش":
+        if user_id in withdraw_temp:
+            withdraw_temp[user_id]['method'] = 'شام كاش'
+        else:
+            withdraw_temp[user_id] = {'method': 'شام كاش'}
+        user_stat
