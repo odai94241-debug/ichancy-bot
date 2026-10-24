@@ -217,7 +217,7 @@ def handle_callbacks(call):
         bot.edit_message_text(
             chat_id=user_id,
             message_id=call.message.message_id,
-            text=f"🌀 **العجلة تدور الآن...**\n\n🎰 [ 🎡 🎡 🎡 ]",
+            text="🌀 **العجلة تدور الآن...**\n\n🎰 [ 🎡 🎡 🎡 ]",
             parse_mode="Markdown"
         )
         bot.send_message(
@@ -458,4 +458,6 @@ def handle_messages(message):
             bot.send_message(user_id, wheel_text, reply_markup=wheel_inline_keyboard(), parse_mode="Markdown")
 
     elif text == "🎁 قسم الهدايا":
-        bot.send_message(user_id, "🎁 قسم هدايا الوكالة والعروض اليومية.", reply_markup=ba
+        bot.send_message(
+            user_id, 
+            "🎁 قسم هدايا الوكالة والعروض ا
