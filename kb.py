@@ -39,7 +39,7 @@ def ichancy_menu():
 def withdraw_menu():
     m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     m.add(
-        KeyboardButton("سيريان كاش"),
+        KeyboardButton("سيرياتيل كاش"),
         KeyboardButton("شام كاش"),
         KeyboardButton("هرم"),
         KeyboardButton("🔙 رجوع"),
@@ -50,7 +50,7 @@ def withdraw_menu():
 def deposit_menu():
     m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     m.add(
-        KeyboardButton("سيريان كاش"),
+        KeyboardButton("سيرياتيل كاش"),
         KeyboardButton("شام كاش"),
         KeyboardButton("شام كاش USD"),
         KeyboardButton("🔙 رجوع"),
