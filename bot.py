@@ -9,7 +9,9 @@ from telebot.types import (
     KeyboardButton,
     ReplyKeyboardMarkup,
 )
+from flask import Flask, request
 
+# ==================== الإعدادات ====================
 TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7753870725"))
 AGENT_CODE = os.getenv("AGENT_CODE", "")
@@ -20,7 +22,9 @@ MIN_WITHDRAWAL = int(os.getenv("MIN_WITHDRAWAL", "500"))
 WHEEL_DEPOSIT_REQUIRED = int(os.getenv("WHEEL_DEPOSIT_REQUIRED", "750"))
 REFERRAL_PROFIT_SHARE = float(os.getenv("REFERRAL_PROFIT_SHARE", "0.05"))
 
+# ==================== التهيئة ====================
 bot = telebot.TeleBot(TOKEN, threaded=False)
+app = Flask(__name__)
 DB_PATH = "bot_data.db"
 
 
@@ -383,7 +387,39 @@ def handle_all_messages(message):
         bot.send_message(user_id, f"💵 أرسل المبلغ للسحب (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
 
 
+# ==================== Webhook (الجزء الجديد) ====================
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot is running!", 200
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    if request.headers.get("content-type") == "application/json":
+        json_string = request.get_data().decode("utf-8")
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "OK", 200
+    return "Forbidden", 403
+
+
+@app.route("/set_webhook", methods=["GET"])
+def set_webhook():
+    """افتح هذا الرابط مرة واحدة من المتصفح لتفعيل Webhook"""
+    url = os.getenv("RENDER_EXTERNAL_URL", "") + "/webhook"
+    if not url.startswith("http"):
+        return "RENDER_EXTERNAL_URL غير مضبوط", 400
+    result = bot.set_webhook(url=url)
+    return f"Webhook set to {url} | result={result}", 200
+
+
+@app.route("/delete_webhook", methods=["GET"])
+def delete_webhook():
+    bot.remove_webhook()
+    return "Webhook deleted", 200
+
+
 # ==================== تشغيل ====================
 if __name__ == "__main__":
-    print("✅ البوت شغّال...")
-    bot.infinity_polling()
+    port = int(os.getenv("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port)
