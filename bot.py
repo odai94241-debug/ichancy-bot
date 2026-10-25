@@ -1,30 +1,187 @@
 import requests
 from datetime import datetime
+import sqlite3
 
 import telebot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask, request
 
-from config import (
-    BOT_TOKEN, ADMIN_ID, AGENT_CODE, ICHANCY_PANEL_URL,
-    MIN_DEPOSIT, MIN_WITHDRAWAL, MIN_USD_DEPOSIT,
-    REFERRAL_PROFIT_SHARE, REFERRAL_MIN_ACTIVE,
-)
-from db import (
-    init_db, get_setting, set_setting, add_user, get_user,
-    update_balance, add_deposit_total, add_withdraw_total,
-    save_account, get_account, get_all_users, get_active_offer,
-)
-from kb import (
-    main_menu, ichancy_menu, withdraw_menu, deposit_menu,
-    admin_menu, back_menu,
-)
+# ==================== الإعدادات ====================
+BOT_TOKEN = "8734379872:AAFcWacBV-Iouuy4tNz7UdiR8moiRZlh_lg"  # توكنك
+ADMIN_ID = 7753870725
+AGENT_CODE = "2826132-odai1@agents.nps"
+ICHANCY_PANEL_URL = "https://agents.ichancy.com"
+
+MIN_DEPOSIT = 200
+MIN_WITHDRAWAL = 500
+REFERRAL_PROFIT_SHARE = 0.05
+REFERRAL_MIN_ACTIVE = 3
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
+DB_PATH = "bot_data.db"
+
+# ==================== قاعدة البيانات ====================
+def db_conn():
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+def init_db():
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY, first_name TEXT,
+        balance REAL DEFAULT 0, total_deposited REAL DEFAULT 0,
+        total_withdrawn REAL DEFAULT 0, referred_by INTEGER,
+        created_at TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS accounts (
+        user_id INTEGER PRIMARY KEY, username TEXT, password TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)""")
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance','off')")
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash','غير محدد')")
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash','غير محدد')")
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('usd_rate','140')")
+    c.execute("""INSERT OR IGNORE INTO settings VALUES ('terms',
+        '⚠️ شروط الاستخدام — odai Robert\n\n'
+        'عند الضغط على زر موافقة فأنت توافق على الشروط القائمة ضمن البوت.')""")
+    conn.commit()
+    conn.close()
+
 init_db()
 
+def get_setting(k):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key=?", (k,))
+    r = c.fetchone()
+    conn.close()
+    return r[0] if r else ""
 
+def set_setting(k, v):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("REPLACE INTO settings (key,value) VALUES (?,?)", (k, v))
+    conn.commit()
+    conn.close()
+
+def add_user(uid, name, ref=None):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO users (user_id,first_name,referred_by,created_at) VALUES (?,?,?,?)",
+              (uid, name, ref, str(datetime.now())))
+    conn.commit()
+    conn.close()
+
+def get_user(uid):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("SELECT balance,total_deposited,total_withdrawn,referred_by FROM users WHERE user_id=?", (uid,))
+    r = c.fetchone()
+    conn.close()
+    return r if r else (0, 0, 0, None)
+
+def update_balance(uid, amt):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amt, uid))
+    conn.commit()
+    conn.close()
+
+def save_account(uid, u, p):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("REPLACE INTO accounts VALUES (?,?,?)", (uid, u, p))
+    conn.commit()
+    conn.close()
+
+def get_account(uid):
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("SELECT username,password FROM accounts WHERE user_id=?", (uid,))
+    r = c.fetchone()
+    conn.close()
+    return r
+
+def get_all_users():
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users")
+    r = c.fetchall()
+    conn.close()
+    return [x[0] for x in r]
+
+# ==================== الأزرار ====================
+def main_menu(is_admin=False):
+    m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    m.add(
+        KeyboardButton("👤 حسابي"),
+        KeyboardButton("💳 سحب رصيد من البوت"),
+        KeyboardButton("📱 شحن رصيد في البوت"),
+        KeyboardButton("🤝 إهداء صديق"),
+        KeyboardButton("🎁 كود جائزة"),
+        KeyboardButton("👥 الإحالات"),
+        KeyboardButton("📊 السجلات"),
+        KeyboardButton("🎧 إرسال رسالة للدعم"),
+        KeyboardButton("🌐 ايشاني"),
+        KeyboardButton("🔄 استرداد آخر طلب سحب"),
+        KeyboardButton("🎁 العروض النشطة"),
+        KeyboardButton("📜 شروط الاستخدام"),
+        KeyboardButton("🎡 عجلة الفرصة"),
+    )
+    if is_admin:
+        m.add(KeyboardButton("⚙️ لوحة تحكم الآدمن"))
+    return m
+
+def ichancy_menu():
+    m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    m.add(
+        KeyboardButton("👤 إنشاء حساب ايشاني"),
+        KeyboardButton("💳 سحب رصيد من الحساب"),
+        KeyboardButton("💳 شحن رصيد في الحساب"),
+        KeyboardButton("⚡ شحن كامل الرصيد"),
+        KeyboardButton("🗑️ حذف حسابي"),
+        KeyboardButton("🔙 رجوع"),
+    )
+    return m
+
+def withdraw_menu():
+    m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    m.add(
+        KeyboardButton("سيرياتيل كاش"),
+        KeyboardButton("شام كاش"),
+        KeyboardButton("هرم"),
+        KeyboardButton("🔙 رجوع"),
+    )
+    return m
+
+def deposit_menu():
+    m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    m.add(
+        KeyboardButton("سيرياتيل كاش"),
+        KeyboardButton("شام كاش"),
+        KeyboardButton("شام كاش USD"),
+        KeyboardButton("🔙 رجوع"),
+    )
+    return m
+
+def admin_menu():
+    m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    m.add(
+        KeyboardButton("🛠️ إيقاف/تشغيل الصيانة"),
+        KeyboardButton("📢 إرسال إذاعة للجميع"),
+        KeyboardButton("📱 تغيير كود الشام كاش"),
+        KeyboardButton("📱 تغيير كود سيرياتيل كاش"),
+        KeyboardButton("💵 تغيير سعر شام كاش دولار"),
+        KeyboardButton("👥 إحصائيات الأعضاء"),
+        KeyboardButton("🔙 رجوع"),
+    )
+    return m
+
+def back_menu():
+    m = ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+    m.add(KeyboardButton("🔙 رجوع"))
+    return m
+
+# ==================== الدوال المساعدة ====================
 def calc_commission(amt):
     if amt <= 50000000:
         rate = 0.10
@@ -34,39 +191,10 @@ def calc_commission(amt):
         rate = 0.20
     return amt - (amt * rate), rate * 100
 
-
-def create_ichancy_account(username, password):
-    email = f"{username}@agent.nps"
-    try:
-        session = requests.Session()
-        session.post(
-            "https://agents.ichancy.com/login",
-            data={"username": "Odai1@Agents.nps", "password": "ضع_الباسورد_هون"},
-            timeout=30,
-        )
-        resp = session.post(
-            "https://agents.ichancy.com/register",
-            data={
-                "username": username,
-                "email": email,
-                "password": password,
-                "agent_code": AGENT_CODE,
-            },
-            timeout=30,
-        )
-        text = resp.text.lower()
-        if "success" in text or "تم" in text or "created" in text:
-            return True, "✅ تم إنشاء الحساب بنجاح"
-        if "error" in text or "exists" in text or "موجود" in text:
-            return False, "⚠️ هذا الحساب مكرر، جرب اسم تاني"
-        return True, "✅ تم إنشاء الحساب (تحقق يدوياً)"
-    except Exception as e:
-        return False, f"⚠️ خطأ في الاتصال: {str(e)[:100]}"
+# ==================== المعالجات ====================
 user_states = {}
 temp_data = {}
 
-
-# ==================== /start ====================
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
     uid = message.chat.id
@@ -78,7 +206,6 @@ def cmd_start(message):
 
     if ref and ref != uid:
         try:
-            conn_users = get_all_users()
             bot.send_message(ref, f"👥 إحالة جديدة!\n👤 شخص جديد دخل من رابطك")
         except:
             pass
@@ -91,8 +218,6 @@ def cmd_start(message):
     text = f"✨ قائمة الخيارات الرئيسية\n\n💰 الرصيد: {bal} ليرة جديدة\n🆔 ايديك: {uid}"
     bot.send_message(uid, text, reply_markup=main_menu(is_admin))
 
-
-# ==================== معالج الأزرار ====================
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_all(message):
     uid = message.chat.id
@@ -103,7 +228,6 @@ def handle_all(message):
         bot.send_message(uid, "⚠️ البوت قيد الصيانة حالياً.")
         return
 
-    # ✅ زر الرجوع أول شي
     if text == "🔙 رجوع":
         user_states[uid] = None
         temp_data.pop(uid, None)
@@ -131,11 +255,19 @@ def handle_all(message):
         password = text
         user_states[uid] = None
         temp_data.pop(uid, None)
-        bot.send_message(uid, "⏳ جاري إنشاء الحساب...")
-        ok, msg = create_ichancy_account(username, password)
-        if ok:
-            save_account(uid, username, password)
-        bot.send_message(uid, f"{msg}\n\n👤 المستخدم: {username}\n🔑 كلمة السر: {password}", reply_markup=main_menu(is_admin))
+        
+        # ✅ الحل اليدوي: بنبعت البيانات للأدمن (إنت) عشان تنشئ الحساب
+        bot.send_message(uid, "⏳ تم إرسال طلبك للإدارة، سيتم إنشاء الحساب قريباً.", reply_markup=main_menu(is_admin))
+        
+        # إشعار للأدمن
+        admin_text = (
+            f"👤 **طلب إنشاء حساب جديد**\n\n"
+            f"🆔 ايدي الزبون: `{uid}`\n"
+            f"👤 اسم المستخدم: `{username}`\n"
+            f"🔑 كلمة السر: `{password}`\n\n"
+            f"👉 يرجى الدخول للموقع وإنشاء الحساب يدوياً."
+        )
+        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
         return
 
     # ========== سحب ==========
@@ -186,12 +318,10 @@ def handle_all(message):
     if state == "dep_tx":
         amt = temp_data[uid]["amount"]
         method = temp_data[uid]["method"]
-        offer = get_active_offer()
-        bonus = amt * (offer / 100) if offer > 0 else 0
         user_states[uid] = None
         temp_data.pop(uid, None)
-        bot.send_message(uid, f"⏳ تم إرسال طلب الشحن\n💰 {amt} ليرة\n🎁 بونص: {bonus} ليرة\n\nبانتظار الموافقة", reply_markup=main_menu(is_admin))
-        bot.send_message(ADMIN_ID, f"📥 طلب شحن\n👤 {uid}\n💰 {amt}\n🎁 {bonus}\n📱 {method}\n🔢 {text}")
+        bot.send_message(uid, f"⏳ تم إرسال طلب الشحن\n💰 {amt} ليرة\n\nبانتظار الموافقة", reply_markup=main_menu(is_admin))
+        bot.send_message(ADMIN_ID, f"📥 طلب شحن\n👤 {uid}\n💰 {amt}\n📱 {method}\n🔢 {text}")
         return
         
     # ========== الأزرار الرئيسية ==========
@@ -210,7 +340,7 @@ def handle_all(message):
         user_states[uid] = "wd_method"
         bot.send_message(uid, "💳 اختر طريقة السحب:", reply_markup=withdraw_menu())
 
-    elif text in ("سيريان كاش", "شام كاش", "هرم") and user_states.get(uid) == "wd_method":
+    elif text in ("سيرياتيل كاش", "شام كاش", "هرم") and user_states.get(uid) == "wd_method":
         temp_data[uid] = {"method": text}
         user_states[uid] = "wd_amount"
         bot.send_message(uid, f"💵 أرسل المبلغ (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
@@ -219,7 +349,7 @@ def handle_all(message):
         user_states[uid] = "dep_method"
         bot.send_message(uid, "📱 اختر طريقة الشحن:", reply_markup=deposit_menu())
 
-    elif text in ("سيريان كاش", "شام كاش", "شام كاش USD") and user_states.get(uid) == "dep_method":
+    elif text in ("سيرياتيل كاش", "شام كاش", "شام كاش USD") and user_states.get(uid) == "dep_method":
         temp_data[uid] = {"method": text}
         user_states[uid] = "dep_amount"
         bot.send_message(uid, f"💵 أرسل المبلغ (الحد الأدنى {MIN_DEPOSIT} ليرة):", reply_markup=back_menu())
@@ -253,11 +383,7 @@ def handle_all(message):
         bot.send_message(uid, "🔄 ما في طلبات سحب معلقة حالياً", reply_markup=back_menu())
 
     elif text == "🎁 العروض النشطة":
-        offer = get_active_offer()
-        if offer > 0:
-            bot.send_message(uid, f"🎁 عرض نشط!\n💰 {offer}% بونص على الشحن", reply_markup=back_menu())
-        else:
-            bot.send_message(uid, "ما في عروض نشطة حالياً", reply_markup=back_menu())
+        bot.send_message(uid, "ما في عروض نشطة حالياً", reply_markup=back_menu())
 
     elif text == "📜 شروط الاستخدام":
         bot.send_message(uid, get_setting("terms"), reply_markup=back_menu())
@@ -297,15 +423,10 @@ def handle_all(message):
         user_states[uid] = "usd_rate_update"
         bot.send_message(uid, "💵 أرسل السعر الجديد (مثلاً: 140):", reply_markup=back_menu())
 
-    elif text == "🎁 إنشاء عرض جديد" and is_admin:
-        user_states[uid] = "offer_percent"
-        bot.send_message(uid, "🎁 أرسل نسبة البونص (مثلاً: 20):", reply_markup=back_menu())
-
     elif text == "👥 إحصائيات الأعضاء" and is_admin:
         all_u = get_all_users()
         bot.send_message(uid, f"👥 عدد الأعضاء: {len(all_u)}", reply_markup=admin_menu())
 
-    # ========== حالات الأدمن ==========
     elif state == "broadcast" and is_admin:
         for u in get_all_users():
             try:
@@ -334,39 +455,6 @@ def handle_all(message):
         except:
             bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
 
-    elif state == "offer_percent" and is_admin:
-        try:
-            p = float(text)
-            temp_data[uid] = {"percent": p}
-            user_states[uid] = "offer_start"
-            bot.send_message(uid, "⏰ أرسل وقت البداية (مثال: 2026-10-26 19:00):", reply_markup=back_menu())
-        except:
-            bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
-
-    elif state == "offer_start" and is_admin:
-        temp_data[uid]["start"] = text
-        user_states[uid] = "offer_end"
-        bot.send_message(uid, "⏰ أرسل وقت النهاية:", reply_markup=back_menu())
-
-    elif state == "offer_end" and is_admin:
-        p = temp_data[uid]["percent"]
-        start = temp_data[uid]["start"]
-        end = text
-        from db import db_conn
-        conn = db_conn()
-        c = conn.cursor()
-        c.execute("INSERT INTO offers (percent,start_time,end_time,active) VALUES (?,?,?,1)", (p, start, end))
-        conn.commit()
-        conn.close()
-        user_states[uid] = None
-        temp_data.pop(uid, None)
-        for u in get_all_users():
-            try:
-                bot.send_message(u, f"🎁 عرض خاص!\n💰 {p}% بونص\n⏰ من {start} إلى {end}")
-            except:
-                pass
-        bot.send_message(uid, "✅ تم إنشاء العرض", reply_markup=admin_menu())
-
     elif state == "support":
         bot.send_message(ADMIN_ID, f"🎧 رسالة دعم من {uid}:\n\n{text}")
         user_states[uid] = None
@@ -378,7 +466,6 @@ def handle_all(message):
 def index():
     return "Bot is running!", 200
 
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     if request.headers.get("content-type") == "application/json":
@@ -387,7 +474,6 @@ def webhook():
         bot.process_new_updates([update])
         return "OK", 200
     return "Forbidden", 403
-
 
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
@@ -398,14 +484,6 @@ def set_webhook():
     result = bot.set_webhook(url=url)
     return f"Webhook set to {url} | result={result}", 200
 
-
-@app.route("/delete_webhook", methods=["GET"])
-def delete_webhook():
-    bot.remove_webhook()
-    return "Webhook deleted", 200
-
-
-# ==================== تشغيل ====================
 if __name__ == "__main__":
     import os
     port = int(os.getenv("PORT", "5000"))
