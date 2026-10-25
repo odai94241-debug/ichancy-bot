@@ -1,13 +1,14 @@
 import requests
 from datetime import datetime
 import sqlite3
+import os
 
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask, request
 
 # ==================== الإعدادات ====================
-BOT_TOKEN = "8734379872:AAFcWacBV-Iouuy4tNz7UdiR8moiRZlh_lg"  # توكنك
+BOT_TOKEN = "8734379872:AAFcWacBV-Iouuy4tNz7UdiR8moiRZlh_lg" # توكنك
 ADMIN_ID = 7753870725
 AGENT_CODE = "2826132-odai1@agents.nps"
 ICHANCY_PANEL_URL = "https://agents.ichancy.com"
@@ -40,9 +41,11 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash','غير محدد')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash','غير محدد')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('usd_rate','140')")
-    c.execute("""INSERT OR IGNORE INTO settings VALUES ('terms',
-        '⚠️ شروط الاستخدام — odai Robert\n\n'
-        'عند الضغط على زر موافقة فأنت توافق على الشروط القائمة ضمن البوت.')""")
+    
+    # إصلاح الخطأ: استخدام المتغيرات (?) لتفادي مشاكل علامات الاقتباس
+    terms_text = "⚠️ شروط الاستخدام — odai Robert\n\nعند الضغط على زر موافقة فأنت توافق على الشروط القائمة ضمن البوت."
+    c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("terms", terms_text))
+    
     conn.commit()
     conn.close()
 
@@ -256,10 +259,8 @@ def handle_all(message):
         user_states[uid] = None
         temp_data.pop(uid, None)
         
-        # ✅ الحل اليدوي: بنبعت البيانات للأدمن (إنت) عشان تنشئ الحساب
         bot.send_message(uid, "⏳ تم إرسال طلبك للإدارة، سيتم إنشاء الحساب قريباً.", reply_markup=main_menu(is_admin))
         
-        # إشعار للأدمن
         admin_text = (
             f"👤 **طلب إنشاء حساب جديد**\n\n"
             f"🆔 ايدي الزبون: `{uid}`\n"
@@ -477,7 +478,6 @@ def webhook():
 
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
-    import os
     url = os.getenv("RENDER_EXTERNAL_URL", "") + "/webhook"
     if not url.startswith("http"):
         return "RENDER_EXTERNAL_URL غير مضبوط", 400
@@ -485,6 +485,5 @@ def set_webhook():
     return f"Webhook set to {url} | result={result}", 200
 
 if __name__ == "__main__":
-    import os
     port = int(os.getenv("PORT", "5000"))
     app.run(host="0.0.0.0", port=port)
