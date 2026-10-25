@@ -41,11 +41,7 @@ def init_db():
     c.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash','غير محدد')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash','غير محدد')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('usd_rate','140')")
-    
-    # إصلاح الخطأ: استخدام المتغيرات (?) لتفادي مشاكل علامات الاقتباس
-    terms_text = "⚠️ شروط الاستخدام — odai Robert\n\nعند الضغط على زر موافقة فأنت توافق على الشروط القائمة ضمن البوت."
-    c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("terms", terms_text))
-    
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('terms', '⚠️ شروط الاستخدام — odai Robert\n\nعند الضغط على زر موافقة فأنت توافق على الشروط القائمة ضمن البوت.')")
     conn.commit()
     conn.close()
 
@@ -261,14 +257,15 @@ def handle_all(message):
         
         bot.send_message(uid, "⏳ تم إرسال طلبك للإدارة، سيتم إنشاء الحساب قريباً.", reply_markup=main_menu(is_admin))
         
+        # إزالة Markdown لتجنب الأخطاء
         admin_text = (
-            f"👤 **طلب إنشاء حساب جديد**\n\n"
-            f"🆔 ايدي الزبون: `{uid}`\n"
-            f"👤 اسم المستخدم: `{username}`\n"
-            f"🔑 كلمة السر: `{password}`\n\n"
+            f"👤 طلب إنشاء حساب جديد\n\n"
+            f"🆔 ايدي الزبون: {uid}\n"
+            f"👤 اسم المستخدم: {username}\n"
+            f"🔑 كلمة السر: {password}\n\n"
             f"👉 يرجى الدخول للموقع وإنشاء الحساب يدوياً."
         )
-        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, admin_text)
         return
 
     # ========== سحب ==========
