@@ -6,7 +6,7 @@ import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask, request
 
-BOT_TOKEN = "8734379872:AAHmapUaiR7aP7pPrcAmqaskQq1bWm7_BmQ"
+BOT_TOKEN ="8734379872:AAHNE7uPZGMU2vMZZesM8NTzkor0CWEbcE8"
 ADMIN_ID = 7753870725
 
 MIN_DEPOSIT = 200
