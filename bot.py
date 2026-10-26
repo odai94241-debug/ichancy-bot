@@ -229,11 +229,9 @@ def handle_callback(call):
         if row:
             user_id, amount = row
             if action == "ok":
-                # الرصيد مخصوم أصلاً وقت الطلب، بس بنبعت رسالة تأكيد
                 bot.send_message(user_id, f"✅ تمت الموافقة على طلب السحب!\n💰 تم تحويل {amount} ليرة لحسابك.")
                 bot.edit_message_text(f"✅ تمت الموافقة على السحب للزبون {user_id} بمبلغ {amount}.", call.message.chat.id, call.message.message_id)
             else:
-                # إرجاع الرصيد للزبون عند الرفض
                 update_balance(user_id, amount)
                 bot.send_message(user_id, f"❌ تم رفض طلب السحب الخاص بك.\n💰 تم إرجاع {amount} ليرة إلى رصيدك.")
                 bot.edit_message_text(f"❌ تم رفض السحب للزبون {user_id} وإرجاع الرصيد.", call.message.chat.id, call.message.message_id)
@@ -249,7 +247,6 @@ def handle_all(message):
     text = message.text or ""
     is_admin = uid == ADMIN_ID
 
-    # ⚠️ زر الرجوع لازم يكون أول شي عشان يلغي أي عملية
     if text == "🔙 رجوع":
         user_states[uid] = None
         temp_data.pop(uid, None)
@@ -315,10 +312,8 @@ def handle_all(message):
         method = temp_data[uid]["method"]
         account_num = temp_data[uid]["account"]
         
-        # 1. خصم الرصيد فوراً (حجز)
         update_balance(uid, -amt)
         
-        # 2. حفظ الطلب في قاعدة البيانات
         conn = db_conn()
         c = conn.cursor()
         c.execute("INSERT INTO pending_withdrawals (user_id, amount, method, account) VALUES (?,?,?,?)", (uid, amt, method, account_num))
@@ -359,7 +354,6 @@ def handle_all(message):
         return
 
     if text == "💳 سحب رصيد من البوت":
-        # الفحص الجديد: التأكد من الرصيد قبل طلب السحب
         bal, _, _, _ = get_user(uid)
         if bal < MIN_WITHDRAWAL:
             bot.send_message(uid, f"⚠️ عذراً، رصيدك الحالي ({bal} ليرة) لا يكفي للسحب. الحد الأدنى للسحب هو {MIN_WITHDRAWAL} ليرة.", reply_markup=main_menu(is_admin))
@@ -409,7 +403,7 @@ def handle_all(message):
         active = len([u for u in conn_users if get_user(u)[3] == uid and get_user(u)[1] > 0])
         net = sum(max(0, get_user(u)[1] - get_user(u)[2]) for u in conn_users if get_user(u)[3] == uid)
         earnings = net * REFERRAL_PROFIT_SHARE if active >= REFERRAL_MIN_ACTIVE else 0
-        msg = (f"👥 الإحالات\n\n🔗 رابطك: {ref_link}\n\n📊 إجمالي: {total}\n✅ نشطة: {active}\n💰 صافي خسارة: {net}\n🎁 أرباحك (5%): {earnings}\n\n⚠️ شرط: 3 إحالات نشطة على الأقل")
+        msg = f"👥 الإحالات\n\n🔗 رابطك: {ref_link}\n\n📊 إجمالي: {total}\n✅ نشطة: {active}\n💰 صافي خسارة: {net}\n🎁 أرباحك (5%): {earnings}\n\n⚠️ شرط: 3 إحالات نشطة على الأقل"
         bot.send_message(uid, msg, reply_markup=back_menu())
 
     elif text == "📊 السجلات":
@@ -478,4 +472,11 @@ def handle_all(message):
     elif user_states.get(uid) == "sham_update" and is_admin:
         set_setting("sham_cash", text)
         user_states[uid] = None
-        bot.send_message(uid, f"✅ تم 
+        msg = f"✅ تم تحديث شام كاش: {text}"
+        bot.send_message(uid, msg, reply_markup=admin_menu())
+
+    elif user_states.get(uid) == "syriatel_update" and is_admin:
+        set_setting("syriatel_cash", text)
+        user_states[uid] = None
+        msg = f"✅ تم تحديث سيرياتيل: {text}"
+        bot.send_message(uid, msg, reply_markup=adm
