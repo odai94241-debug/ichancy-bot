@@ -482,4 +482,4 @@ def handle_all(message):
 # ==================== Webhook ====================
 @app.route("/", methods=["GET"])
 def index():
-    return "Bot is run
+return "Bot is running!", 200
