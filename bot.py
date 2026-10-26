@@ -32,6 +32,10 @@ def init_db():
         created_at TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS accounts (
         user_id INTEGER PRIMARY KEY, username TEXT, password TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS pending_deposits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, method TEXT, tx_id TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS pending_withdrawals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount REAL, method TEXT, account TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)""")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance','off')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash','ضع_كود_الشام_كاش')")
@@ -184,11 +188,74 @@ def cmd_start(message):
     text = f"✨ قائمة الخيارات الرئيسية\n\n💰 الرصيد: {bal} ليرة جديدة\n🆔 ايديك: {uid}"
     bot.send_message(uid, text, reply_markup=main_menu(is_admin))
 
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    data = call.data
+    if data.startswith("dep_ok_") or data.startswith("dep_no_"):
+        parts = data.split("_")
+        action = parts[1]
+        dep_id = int(parts[2])
+        
+        conn = db_conn()
+        c = conn.cursor()
+        c.execute("SELECT user_id, amount FROM pending_deposits WHERE id=?", (dep_id,))
+        row = c.fetchone()
+        
+        if row:
+            user_id, amount = row
+            if action == "ok":
+                update_balance(user_id, amount)
+                bot.send_message(user_id, f"✅ تمت الموافقة على طلب الشحن!\n💰 تم إضافة {amount} ليرة لرصيدك.")
+                bot.edit_message_text(f"✅ تمت الموافقة على طلب الشحن للزبون {user_id} بمبلغ {amount}.", call.message.chat.id, call.message.message_id)
+            else:
+                bot.send_message(user_id, f"❌ تم رفض طلب الشحن الخاص بك.")
+                bot.edit_message_text(f"❌ تم رفض طلب الشحن للزبون {user_id}.", call.message.chat.id, call.message.message_id)
+            
+            c.execute("DELETE FROM pending_deposits WHERE id=?", (dep_id,))
+            conn.commit()
+        conn.close()
+        bot.answer_callback_query(call.id)
+
+    elif data.startswith("wd_ok_") or data.startswith("wd_no_"):
+        parts = data.split("_")
+        action = parts[1]
+        wd_id = int(parts[2])
+        
+        conn = db_conn()
+        c = conn.cursor()
+        c.execute("SELECT user_id, amount FROM pending_withdrawals WHERE id=?", (wd_id,))
+        row = c.fetchone()
+        
+        if row:
+            user_id, amount = row
+            if action == "ok":
+                # الرصيد مخصوم أصلاً وقت الطلب، بس بنبعت رسالة تأكيد
+                bot.send_message(user_id, f"✅ تمت الموافقة على طلب السحب!\n💰 تم تحويل {amount} ليرة لحسابك.")
+                bot.edit_message_text(f"✅ تمت الموافقة على السحب للزبون {user_id} بمبلغ {amount}.", call.message.chat.id, call.message.message_id)
+            else:
+                # إرجاع الرصيد للزبون عند الرفض
+                update_balance(user_id, amount)
+                bot.send_message(user_id, f"❌ تم رفض طلب السحب الخاص بك.\n💰 تم إرجاع {amount} ليرة إلى رصيدك.")
+                bot.edit_message_text(f"❌ تم رفض السحب للزبون {user_id} وإرجاع الرصيد.", call.message.chat.id, call.message.message_id)
+            
+            c.execute("DELETE FROM pending_withdrawals WHERE id=?", (wd_id,))
+            conn.commit()
+        conn.close()
+        bot.answer_callback_query(call.id)
+
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_all(message):
     uid = message.chat.id
     text = message.text or ""
     is_admin = uid == ADMIN_ID
+
+    # ⚠️ زر الرجوع لازم يكون أول شي عشان يلغي أي عملية
+    if text == "🔙 رجوع":
+        user_states[uid] = None
+        temp_data.pop(uid, None)
+        bal, _, _, _ = get_user(uid)
+        bot.send_message(uid, f"القائمة الرئيسية:\n💰 الرصيد: {bal} ليرة جديدة", reply_markup=main_menu(is_admin))
+        return
 
     # ---------------- الشحن ----------------
     if user_states.get(uid) == "dep_tx":
@@ -209,9 +276,18 @@ def handle_all(message):
         method = temp_data[uid]["method"]
         tx = temp_data[uid]["tx"]
         
-        # إرسال إشعار للأدمن
+        conn = db_conn()
+        c = conn.cursor()
+        c.execute("INSERT INTO pending_deposits (user_id, amount, method, tx_id) VALUES (?,?,?,?)", (uid, amt, method, tx))
+        dep_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("✅ موافقة", callback_data=f"dep_ok_{dep_id}"), InlineKeyboardButton("❌ رفض", callback_data=f"dep_no_{dep_id}"))
+        
         msg_admin = f"📥 طلب شحن جديد\n\n👤 الزبون: {uid}\n📱 الطريقة: {method}\n🔢 رقم العملية: {tx}\n💰 المبلغ: {amt} ليرة"
-        bot.send_message(ADMIN_ID, msg_admin)
+        bot.send_message(ADMIN_ID, msg_admin, reply_markup=markup)
         
         bot.send_message(uid, "⏳ تم إرسال طلبك للإدارة، سيتم التحقق وإضافة الرصيد قريباً.", reply_markup=main_menu(is_admin))
         user_states[uid] = None
@@ -236,12 +312,27 @@ def handle_all(message):
             bot.send_message(uid, f"⚠️ رصيدك {bal} ليرة، ما تكفي", reply_markup=back_menu())
             return
 
-        net, rate = calc_commission(amt)
         method = temp_data[uid]["method"]
         account_num = temp_data[uid]["account"]
         
+        # 1. خصم الرصيد فوراً (حجز)
+        update_balance(uid, -amt)
+        
+        # 2. حفظ الطلب في قاعدة البيانات
+        conn = db_conn()
+        c = conn.cursor()
+        c.execute("INSERT INTO pending_withdrawals (user_id, amount, method, account) VALUES (?,?,?,?)", (uid, amt, method, account_num))
+        wd_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        net, rate = calc_commission(amt)
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("✅ موافقة", callback_data=f"wd_ok_{wd_id}"), InlineKeyboardButton("❌ رفض", callback_data=f"wd_no_{wd_id}"))
+
         msg_admin = f"💸 طلب سحب جديد\n\n👤 الزبون: {uid}\n📱 الطريقة: {method}\n🔢 حساب الزبون: {account_num}\n💰 المبلغ: {amt}\n📉 العمولة: {rate}%\n✅ الصافي: {net} ليرة"
-        bot.send_message(ADMIN_ID, msg_admin)
+        bot.send_message(ADMIN_ID, msg_admin, reply_markup=markup)
         
         bot.send_message(uid, f"⏳ تم إرسال طلبك للإدارة.\n💰 المبلغ: {amt}\n📉 العمولة: {rate}%\n✅ الصافي: {net} ليرة\n\nسيتم المعالجة قريباً.", reply_markup=main_menu(is_admin))
         user_states[uid] = None
@@ -249,13 +340,6 @@ def handle_all(message):
         return
 
     # ---------------- القائمة الرئيسية ----------------
-    if text == "🔙 رجوع":
-        user_states[uid] = None
-        temp_data.pop(uid, None)
-        bal, _, _, _ = get_user(uid)
-        bot.send_message(uid, f"القائمة الرئيسية:\n💰 الرصيد: {bal} ليرة جديدة", reply_markup=main_menu(is_admin))
-        return
-
     if text == "📱 شحن رصيد في البوت":
         user_states[uid] = "dep_method"
         bot.send_message(uid, "📱 اختر طريقة الشحن:", reply_markup=deposit_menu())
@@ -264,7 +348,6 @@ def handle_all(message):
         temp_data[uid] = {"method": text}
         user_states[uid] = "dep_tx"
         
-        # عرض الكود الخاص بالمحفظة
         if text == "شام كاش":
             code = get_setting("sham_cash")
         elif text == "سيرياتيل كاش":
@@ -276,6 +359,12 @@ def handle_all(message):
         return
 
     if text == "💳 سحب رصيد من البوت":
+        # الفحص الجديد: التأكد من الرصيد قبل طلب السحب
+        bal, _, _, _ = get_user(uid)
+        if bal < MIN_WITHDRAWAL:
+            bot.send_message(uid, f"⚠️ عذراً، رصيدك الحالي ({bal} ليرة) لا يكفي للسحب. الحد الأدنى للسحب هو {MIN_WITHDRAWAL} ليرة.", reply_markup=main_menu(is_admin))
+            return
+            
         user_states[uid] = "wd_method"
         bot.send_message(uid, "💳 اختر طريقة السحب:", reply_markup=withdraw_menu())
 
@@ -389,42 +478,4 @@ def handle_all(message):
     elif user_states.get(uid) == "sham_update" and is_admin:
         set_setting("sham_cash", text)
         user_states[uid] = None
-        bot.send_message(uid, f"✅ تم تحديث شام كاش: {text}", reply_markup=admin_menu())
-
-    elif user_states.get(uid) == "syriatel_update" and is_admin:
-        set_setting("syriatel_cash", text)
-        user_states[uid] = None
-        bot.send_message(uid, f"✅ تم تحديث سيرياتيل: {text}", reply_markup=admin_menu())
-
-    elif user_states.get(uid) == "support":
-        bot.send_message(ADMIN_ID, f"🎧 رسالة دعم من {uid}:\n\n{text}")
-        user_states[uid] = None
-        bot.send_message(uid, "✅ تم إرسال رسالتك", reply_markup=main_menu(is_admin))
-
-# ==================== Webhook ====================
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot is running!", 200
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    if request.headers.get("content-type") == "application/json":
-        json_string = request.get_data().decode("utf-8")
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return "OK", 200
-    return "Forbidden", 403
-
-@app.route("/set_webhook", methods=["GET"])
-def set_webhook():
-    try:
-        base_url = os.getenv("RENDER_EXTERNAL_URL", "https://ichancy-bot-2.onrender.com")
-        url = base_url.rstrip("/") + "/webhook"
-        result = bot.set_webhook(url=url)
-        return f"Webhook set to {url} | result={result}", 200
-    except Exception as e:
-        return f"Error: {str(e)}", 200
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port)
+        bot.send_message(uid, f"✅ تم 
