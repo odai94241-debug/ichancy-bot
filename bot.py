@@ -6,17 +6,14 @@ import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask, request
 
-# التوكن اللي إنت حاططه حالياً
 BOT_TOKEN = "8734379872:AAHmapUaiR7aP7pPrcAmqaskQq1bWm7_BmQ"
 ADMIN_ID = 7753870725
-ICHANCY_PANEL_URL = "https://agents.ichancy.com"
 
 MIN_DEPOSIT = 200
 MIN_WITHDRAWAL = 500
 REFERRAL_PROFIT_SHARE = 0.05
 REFERRAL_MIN_ACTIVE = 3
 
-# هدول السطرين هني اللي كانوا ناقصين وسببوا المشكلة
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__) 
 DB_PATH = "bot_data.db"
@@ -37,8 +34,8 @@ def init_db():
         user_id INTEGER PRIMARY KEY, username TEXT, password TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)""")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('maintenance','off')")
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash','غير محدد')")
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash','غير محدد')")
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('sham_cash','ضع_كود_الشام_كاش')")
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('syriatel_cash','ضع_كود_سيرياتيل')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('usd_rate','140')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('terms', 'شروط الاستخدام — odai Robert')")
     conn.commit()
@@ -133,18 +130,12 @@ def ichancy_menu():
 
 def withdraw_menu():
     m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    m.add(
-        KeyboardButton("سيرياتيل كاش"), KeyboardButton("شام كاش"),
-        KeyboardButton("هرم"), KeyboardButton("🔙 رجوع"),
-    )
+    m.add(KeyboardButton("سيرياتيل كاش"), KeyboardButton("شام كاش"), KeyboardButton("هرم"), KeyboardButton("🔙 رجوع"))
     return m
 
 def deposit_menu():
     m = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    m.add(
-        KeyboardButton("سيرياتيل كاش"), KeyboardButton("شام كاش"),
-        KeyboardButton("شام كاش USD"), KeyboardButton("🔙 رجوع"),
-    )
+    m.add(KeyboardButton("سيرياتيل كاش"), KeyboardButton("شام كاش"), KeyboardButton("شام كاش USD"), KeyboardButton("🔙 رجوع"))
     return m
 
 def admin_menu():
@@ -162,7 +153,6 @@ def back_menu():
     m.add(KeyboardButton("🔙 رجوع"))
     return m
 
-# ==================== الدوال المساعدة ====================
 def calc_commission(amt):
     if amt <= 50000000: rate = 0.10
     elif amt <= 150000000: rate = 0.15
@@ -183,7 +173,7 @@ def cmd_start(message):
     is_admin = uid == ADMIN_ID
 
     if ref and ref != uid:
-        try: bot.send_message(ref, f"👥 إحالة جديدة!\n👤 شخص جديد دخل من رابطك")
+        try: bot.send_message(ref, "👥 إحالة جديدة!\n👤 شخص جديد دخل من رابطك")
         except: pass
 
     if get_setting("maintenance") == "on" and not is_admin:
@@ -200,10 +190,65 @@ def handle_all(message):
     text = message.text or ""
     is_admin = uid == ADMIN_ID
 
-    if get_setting("maintenance") == "on" and not is_admin:
-        bot.send_message(uid, "⚠️ البوت قيد الصيانة حالياً.")
+    # ---------------- الشحن ----------------
+    if user_states.get(uid) == "dep_tx":
+        temp_data[uid]["tx"] = text
+        user_states[uid] = "dep_amount"
+        bot.send_message(uid, "💵 أرسل المبلغ اللي شحنته (الحد الأدنى 200 ليرة):", reply_markup=back_menu())
         return
 
+    if user_states.get(uid) == "dep_amount":
+        try: amt = float(text)
+        except:
+            bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
+            return
+        if amt < MIN_DEPOSIT:
+            bot.send_message(uid, "⚠️ الحد الأدنى 200 ليرة", reply_markup=back_menu())
+            return
+        
+        method = temp_data[uid]["method"]
+        tx = temp_data[uid]["tx"]
+        
+        # إرسال إشعار للأدمن
+        msg_admin = f"📥 طلب شحن جديد\n\n👤 الزبون: {uid}\n📱 الطريقة: {method}\n🔢 رقم العملية: {tx}\n💰 المبلغ: {amt} ليرة"
+        bot.send_message(ADMIN_ID, msg_admin)
+        
+        bot.send_message(uid, "⏳ تم إرسال طلبك للإدارة، سيتم التحقق وإضافة الرصيد قريباً.", reply_markup=main_menu(is_admin))
+        user_states[uid] = None
+        temp_data.pop(uid, None)
+        return
+
+    # ---------------- السحب ----------------
+    if user_states.get(uid) == "wd_account":
+        temp_data[uid]["account"] = text
+        user_states[uid] = "wd_amount"
+        bot.send_message(uid, "💵 أرسل المبلغ اللي بدك تسحبه:", reply_markup=back_menu())
+        return
+
+    if user_states.get(uid) == "wd_amount":
+        try: amt = float(text)
+        except:
+            bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
+            return
+        
+        bal, _, _, _ = get_user(uid)
+        if amt > bal:
+            bot.send_message(uid, f"⚠️ رصيدك {bal} ليرة، ما تكفي", reply_markup=back_menu())
+            return
+
+        net, rate = calc_commission(amt)
+        method = temp_data[uid]["method"]
+        account_num = temp_data[uid]["account"]
+        
+        msg_admin = f"💸 طلب سحب جديد\n\n👤 الزبون: {uid}\n📱 الطريقة: {method}\n🔢 حساب الزبون: {account_num}\n💰 المبلغ: {amt}\n📉 العمولة: {rate}%\n✅ الصافي: {net} ليرة"
+        bot.send_message(ADMIN_ID, msg_admin)
+        
+        bot.send_message(uid, f"⏳ تم إرسال طلبك للإدارة.\n💰 المبلغ: {amt}\n📉 العمولة: {rate}%\n✅ الصافي: {net} ليرة\n\nسيتم المعالجة قريباً.", reply_markup=main_menu(is_admin))
+        user_states[uid] = None
+        temp_data.pop(uid, None)
+        return
+
+    # ---------------- القائمة الرئيسية ----------------
     if text == "🔙 رجوع":
         user_states[uid] = None
         temp_data.pop(uid, None)
@@ -211,18 +256,52 @@ def handle_all(message):
         bot.send_message(uid, f"القائمة الرئيسية:\n💰 الرصيد: {bal} ليرة جديدة", reply_markup=main_menu(is_admin))
         return
 
-    state = user_states.get(uid)
+    if text == "📱 شحن رصيد في البوت":
+        user_states[uid] = "dep_method"
+        bot.send_message(uid, "📱 اختر طريقة الشحن:", reply_markup=deposit_menu())
 
-    if state == "reg_username":
+    elif text in ("سيرياتيل كاش", "شام كاش", "شام كاش USD") and user_states.get(uid) == "dep_method":
+        temp_data[uid] = {"method": text}
+        user_states[uid] = "dep_tx"
+        
+        # عرض الكود الخاص بالمحفظة
+        if text == "شام كاش":
+            code = get_setting("sham_cash")
+        elif text == "سيرياتيل كاش":
+            code = get_setting("syriatel_cash")
+        else:
+            code = "يرجى التواصل مع الإدارة"
+            
+        bot.send_message(uid, f"💳 يرجى التحويل إلى هذا الحساب:\n`{code}`\n\nبعد التحويل، أرسل لي **رقم عملية التحويل**:", reply_markup=back_menu(), parse_mode="Markdown")
+        return
+
+    if text == "💳 سحب رصيد من البوت":
+        user_states[uid] = "wd_method"
+        bot.send_message(uid, "💳 اختر طريقة السحب:", reply_markup=withdraw_menu())
+
+    elif text in ("سيرياتيل كاش", "شام كاش", "هرم") and user_states.get(uid) == "wd_method":
+        temp_data[uid] = {"method": text}
+        user_states[uid] = "wd_account"
+        bot.send_message(uid, "📝 أرسل عنوان/رقم حسابك اللي بدك تحول عليه:", reply_markup=back_menu())
+
+    elif text == "👤 حسابي":
+        acc = get_account(uid)
+        if acc: bot.send_message(uid, f"👤 حسابك\n\n👤 المستخدم: {acc[0]}\n🔑 كلمة السر: {acc[1]}", reply_markup=ichancy_menu())
+        else: bot.send_message(uid, "ما عندك حساب. اضغط إنشاء حساب:", reply_markup=ichancy_menu())
+
+    elif text == "👤 إنشاء حساب ايشاني":
+        user_states[uid] = "reg_username"
+        bot.send_message(uid, "👤 أرسل اسم المستخدم (إنجليزي + رقم):", reply_markup=back_menu())
+
+    elif user_states.get(uid) == "reg_username":
         if not text.isascii() or not any(c.isdigit() for c in text):
             bot.send_message(uid, "⚠️ اسم المستخدم لازم إنجليزي وفيه رقم. جرب تاني:", reply_markup=back_menu())
             return
         temp_data[uid] = {"username": text}
         user_states[uid] = "reg_password"
         bot.send_message(uid, "🔐 أرسل كلمة السر (6 خانات على الأقل):", reply_markup=back_menu())
-        return
 
-    if state == "reg_password":
+    elif user_states.get(uid) == "reg_password":
         if len(text) < 6:
             bot.send_message(uid, "⚠️ كلمة السر لازم 6 خانات على الأقل. جرب تاني:", reply_markup=back_menu())
             return
@@ -233,84 +312,6 @@ def handle_all(message):
         bot.send_message(uid, "⏳ تم إرسال طلبك للإدارة، سيتم إنشاء الحساب قريباً.", reply_markup=main_menu(is_admin))
         admin_text = f"👤 طلب إنشاء حساب جديد\n\n🆔 ايدي الزبون: {uid}\n👤 اسم المستخدم: {username}\n🔑 كلمة السر: {password}\n\n👉 يرجى الدخول للموقع وإنشاء الحساب يدوياً."
         bot.send_message(ADMIN_ID, admin_text)
-        return
-
-    if state == "wd_amount":
-        try: amt = float(text)
-        except:
-            bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
-            return
-        if amt < MIN_WITHDRAWAL:
-            bot.send_message(uid, f"⚠️ الحد الأدنى {MIN_WITHDRAWAL} ليرة", reply_markup=back_menu())
-            return
-        bal, _, _, _ = get_user(uid)
-        if amt > bal:
-            bot.send_message(uid, f"⚠️ رصيدك {bal} ليرة، ما تكفي", reply_markup=back_menu())
-            return
-        temp_data[uid]["amount"] = amt
-        user_states[uid] = "wd_account"
-        bot.send_message(uid, "📝 أرسل رقم حسابك:", reply_markup=back_menu())
-        return
-
-    if state == "wd_account":
-        amt = temp_data[uid]["amount"]
-        method = temp_data[uid]["method"]
-        net, rate = calc_commission(amt)
-        update_balance(uid, -amt)
-        user_states[uid] = None
-        temp_data.pop(uid, None)
-        bot.send_message(uid, f"⏳ تم إرسال طلب السحب\n💰 {amt}\n📉 العمولة: {rate}%\n✅ الصافي: {net} ليرة", reply_markup=main_menu(is_admin))
-        bot.send_message(ADMIN_ID, f"💸 طلب سحب\n👤 {uid}\n💰 {amt}\n📉 {rate}%\n✅ {net}\n📱 {method}\n🔢 {text}")
-        return
-
-    if state == "dep_amount":
-        try: amt = float(text)
-        except:
-            bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
-            return
-        if amt < MIN_DEPOSIT:
-            bot.send_message(uid, f"⚠️ الحد الأدنى {MIN_DEPOSIT} ليرة", reply_markup=back_menu())
-            return
-        temp_data[uid]["amount"] = amt
-        user_states[uid] = "dep_tx"
-        bot.send_message(uid, "📝 أرسل رقم عملية التحويل:", reply_markup=back_menu())
-        return
-
-    if state == "dep_tx":
-        amt = temp_data[uid]["amount"]
-        method = temp_data[uid]["method"]
-        user_states[uid] = None
-        temp_data.pop(uid, None)
-        bot.send_message(uid, f"⏳ تم إرسال طلب الشحن\n💰 {amt} ليرة\n\nبانتظار الموافقة", reply_markup=main_menu(is_admin))
-        bot.send_message(ADMIN_ID, f"📥 طلب شحن\n👤 {uid}\n💰 {amt}\n📱 {method}\n🔢 {text}")
-        return
-        
-    if text == "👤 حسابي":
-        acc = get_account(uid)
-        if acc: bot.send_message(uid, f"👤 حسابك\n\n👤 المستخدم: {acc[0]}\n🔑 كلمة السر: {acc[1]}", reply_markup=ichancy_menu())
-        else: bot.send_message(uid, "ما عندك حساب. اضغط إنشاء حساب:", reply_markup=ichancy_menu())
-
-    elif text == "👤 إنشاء حساب ايشاني":
-        user_states[uid] = "reg_username"
-        bot.send_message(uid, "👤 أرسل اسم المستخدم (إنجليزي + رقم):", reply_markup=back_menu())
-
-    elif text == "💳 سحب رصيد من البوت":
-        user_states[uid] = "wd_method"
-        bot.send_message(uid, "💳 اختر طريقة السحب:", reply_markup=withdraw_menu())
-
-    elif text in ("سيرياتيل كاش", "شام كاش", "هرم") and user_states.get(uid) == "wd_method":
-        temp_data[uid] = {"method": text}
-        user_states[uid] = "wd_amount"
-        bot.send_message(uid, f"💵 أرسل المبلغ (الحد الأدنى {MIN_WITHDRAWAL} ليرة):", reply_markup=back_menu())
-
-    elif text == "📱 شحن رصيد في البوت":
-        user_states[uid] = "dep_method"
-        bot.send_message(uid, "📱 اختر طريقة الشحن:", reply_markup=deposit_menu())
-
-    elif text in ("سيرياتيل كاش", "شام كاش", "شام كاش USD") and user_states.get(uid) == "dep_method":
-        temp_data[uid] = {"method": text}
-        user_states[uid] = "dep_amount"
-        bot.send_message(uid, f"💵 أرسل المبلغ (الحد الأدنى {MIN_DEPOSIT} ليرة):", reply_markup=back_menu())
 
     elif text == "👥 الإحالات":
         ref_link = f"https://t.me/{(bot.get_me()).username}?start={uid}"
@@ -331,7 +332,7 @@ def handle_all(message):
 
     elif text == "🌐 ايشاني":
         mk = InlineKeyboardMarkup()
-        mk.add(InlineKeyboardButton("🌐 فتح الموقع", url=ICHANCY_PANEL_URL))
+        mk.add(InlineKeyboardButton("🌐 فتح الموقع", url="https://agents.ichancy.com"))
         bot.send_message(uid, "اضغط للدخول:", reply_markup=mk)
 
     elif text == "🔄 استرداد آخر طلب سحب":
@@ -352,6 +353,7 @@ def handle_all(message):
     elif text == "🎁 كود جائزة":
         bot.send_message(uid, "🎁 أرسل كود الجائزة:\n\n(سيتم إضافته قريباً)", reply_markup=back_menu())
 
+    # ---------------- لوحة الأدمن ----------------
     elif text == "⚙️ لوحة تحكم الآدمن" and is_admin:
         bot.send_message(uid, "⚙️ لوحة التحكم:", reply_markup=admin_menu())
 
@@ -373,45 +375,31 @@ def handle_all(message):
         user_states[uid] = "syriatel_update"
         bot.send_message(uid, "📱 أرسل كود سيرياتيل الجديد:", reply_markup=back_menu())
 
-    elif text == "💵 تغيير سعر شام كاش دولار" and is_admin:
-        user_states[uid] = "usd_rate_update"
-        bot.send_message(uid, "💵 أرسل السعر الجديد (مثلاً: 140):", reply_markup=back_menu())
-
     elif text == "👥 إحصائيات الأعضاء" and is_admin:
         all_u = get_all_users()
         bot.send_message(uid, f"👥 عدد الأعضاء: {len(all_u)}", reply_markup=admin_menu())
 
-    elif state == "broadcast" and is_admin:
+    elif user_states.get(uid) == "broadcast" and is_admin:
         for u in get_all_users():
             try: bot.send_message(u, text)
             except: pass
         user_states[uid] = None
         bot.send_message(uid, "✅ تمت الإذاعة", reply_markup=admin_menu())
 
-    elif state == "sham_update" and is_admin:
+    elif user_states.get(uid) == "sham_update" and is_admin:
         set_setting("sham_cash", text)
         user_states[uid] = None
         bot.send_message(uid, f"✅ تم تحديث شام كاش: {text}", reply_markup=admin_menu())
 
-    elif state == "syriatel_update" and is_admin:
+    elif user_states.get(uid) == "syriatel_update" and is_admin:
         set_setting("syriatel_cash", text)
         user_states[uid] = None
         bot.send_message(uid, f"✅ تم تحديث سيرياتيل: {text}", reply_markup=admin_menu())
 
-    elif state == "usd_rate_update" and is_admin:
-        try:
-            rate = float(text)
-            set_setting("usd_rate", str(rate))
-            user_states[uid] = None
-            bot.send_message(uid, f"✅ تم تحديث السعر: {rate}", reply_markup=admin_menu())
-        except:
-            bot.send_message(uid, "⚠️ أرسل رقم صحيح:", reply_markup=back_menu())
-
-    elif state == "support":
+    elif user_states.get(uid) == "support":
         bot.send_message(ADMIN_ID, f"🎧 رسالة دعم من {uid}:\n\n{text}")
         user_states[uid] = None
         bot.send_message(uid, "✅ تم إرسال رسالتك", reply_markup=main_menu(is_admin))
-
 
 # ==================== Webhook ====================
 @app.route("/", methods=["GET"])
