@@ -6,7 +6,7 @@ import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask, request
 
-BOT_TOKEN ="8734379872:AAGuhAhKo3-6wxC3C7xrqhGL-3A5nPIEwxY"
+BOT_TOKEN = "8734379872:AAGuhAhKo3-6wxC3C7xrqhGL-3A5nPIEwxY"
 ADMIN_ID = 7753870725
 
 MIN_DEPOSIT = 200
@@ -18,6 +18,7 @@ bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__) 
 DB_PATH = "bot_data.db"
 
+# ==================== قاعدة البيانات ====================
 def db_conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -480,19 +481,4 @@ def handle_all(message):
         bot.send_message(uid, "✅ تم إرسال رسالتك", reply_markup=main_menu(is_admin))
 
 # ==================== Webhook ====================
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot is running!", 200
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    if request.headers.get("content-type") == "application/json":
-        json_string = request.get_data().decode("utf-8")
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return "OK", 200
-    return "Forbidden", 403
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port)
+@app.rout
