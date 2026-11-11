@@ -13,10 +13,21 @@ app = Flask(__name__)
 
 def test_ichancy():
     try:
-        # محاولة فتح الموقع وكأننا متصفح كروم حقيقي
-        response = curl_requests.get("https://agents.ichancy.com", impersonate="chrome120", timeout=20)
+        # البروكسي الكندي اللي جبته
+        proxies = {
+            "http": "http://184.75.221.82:3118",
+            "https": "http://184.75.221.82:3118"
+        }
+        
+        response = curl_requests.get(
+            "https://agents.ichancy.com", 
+            impersonate="chrome120", 
+            proxies=proxies, 
+            timeout=30
+        )
+        
         if response.status_code == 200:
-            return "✅ الاتصال نجح! الموقع فتح معنا (تم كسر الحظر)."
+            return "✅ الاتصال نجح! الموقع فتح معنا عن طريق البروكسي الكندي."
         else:
             return f"⚠️ فشل الاتصال. كود الحالة: {response.status_code}"
     except Exception as e:
