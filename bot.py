@@ -13,10 +13,10 @@ app = Flask(__name__)
 
 def test_ichancy():
     try:
-        # البروكسي الكندي اللي جبته
+        # البروكسي الكندي الجديد
         proxies = {
-            "http": "http://184.75.221.82:3118",
-            "https": "http://184.75.221.82:3118"
+            "http": "http://142.44.208.133:1080",
+            "https": "http://142.44.208.133:1080"
         }
         
         response = curl_requests.get(
